@@ -20,6 +20,11 @@ A replaceable backend that executes model inference behind a process boundary. T
 the engine contract, never the engine's internals.
 _Avoid_: wrapper, runner, backend library
 
+**Engine Contract**:
+The language-agnostic protocol between the core and a separation engine: audio, model id, and
+parameters in; stem files, progress events, and timings out.
+_Avoid_: plugin API, engine interface
+
 **Model**:
 A specific separation checkpoint an engine can run (e.g. `htdemucs_6s`, Kim Mel-Band RoFormer),
 carrying its own license status and hardware tier.
@@ -30,7 +35,12 @@ A model's declared hardware requirement — "runs everywhere" or "GPU required" 
 a run, not discovered during one.
 
 **Job**:
-One separation run: an input recording, a preset, and the resulting stem folder.
+One separation run: an input recording, a preset, and the resulting job folder.
+
+**Job Folder**:
+The self-contained per-job directory holding the stems and the job record — the canonical
+representation of a completed job; nothing about a job lives anywhere else.
+_Avoid_: output directory, results folder
 
 **Job Record**:
 The reproducibility file written with every job: model, version, and parameters sufficient to
