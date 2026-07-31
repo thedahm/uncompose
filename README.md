@@ -1,13 +1,11 @@
 # Uncompose
 
-**Take the mix apart.** Open-source music source separation.
+Open-source music source separation.
 
 Uncompose separates recorded music into vocals, drums, bass, and instruments — locally,
 openly, and without a subscription. It is a local-first tool for musicians who want to
 isolate or reduce parts of a recording for practice, transcription, remixing, or study,
 while keeping control over their audio, models, and workflow.
-
-> Moises is a service musicians use. Uncompose is a tool they own.
 
 ## Status
 
