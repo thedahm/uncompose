@@ -3,8 +3,11 @@
 //! terminal code lives here; `run_job` streams typed events to its caller.
 
 pub mod contract;
+pub mod deps;
 pub mod engine;
 pub mod job;
+
+pub use deps::ensure_ffmpeg;
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};

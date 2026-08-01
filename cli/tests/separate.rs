@@ -19,9 +19,26 @@ fn uncompose(dir: &Path, input_name: &str) -> Command {
     cmd.args(["separate", input.to_str().expect("utf8 path")])
         .args(["--device", "cpu"])
         .env("UNCOMPOSE_ENGINE_PYTHON", support::fake_engine())
+        // The ffmpeg presence check must not depend on the host machine, so
+        // give the CLI a hermetic PATH with a stub ffmpeg on it.
+        .env("PATH", bin_dir_with_ffmpeg(dir))
         // Keep the model cache inside the test's tempdir.
         .env("XDG_CACHE_HOME", dir.join("cache"));
     cmd
+}
+
+/// Create `<dir>/bin/ffmpeg` (executable) and return the `bin` directory, so a
+/// test can point PATH at a stub ffmpeg without touching the host.
+fn bin_dir_with_ffmpeg(dir: &Path) -> std::path::PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let bin = dir.join("bin");
+    std::fs::create_dir_all(&bin).expect("creating bin dir");
+    let ffmpeg = bin.join("ffmpeg");
+    std::fs::write(&ffmpeg, b"#!/bin/sh\n").expect("writing stub ffmpeg");
+    let mut perms = std::fs::metadata(&ffmpeg).expect("metadata").permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&ffmpeg, perms).expect("chmod");
+    bin
 }
 
 #[test]
@@ -77,11 +94,51 @@ fn missing_input_fails_with_a_clear_message() {
     let output = cmd
         .args(["separate", dir.path().join("nope.wav").to_str().unwrap()])
         .env("UNCOMPOSE_ENGINE_PYTHON", support::fake_engine())
+        .env("PATH", bin_dir_with_ffmpeg(dir.path()))
         .env("XDG_CACHE_HOME", dir.path().join("cache"))
         .output()
         .expect("running CLI");
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("input not found"));
+}
+
+#[test]
+fn missing_ffmpeg_stops_up_front_with_an_install_message() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let input = dir.path().join("song.wav");
+    std::fs::write(&input, b"not really audio").expect("writing input");
+    // An empty bin dir on PATH: no ffmpeg to be found.
+    let empty_bin = dir.path().join("empty-bin");
+    std::fs::create_dir_all(&empty_bin).expect("creating empty bin dir");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_uncompose"))
+        .args(["separate", input.to_str().expect("utf8 path")])
+        .args(["--device", "cpu"])
+        .env("UNCOMPOSE_ENGINE_PYTHON", support::fake_engine())
+        .env("PATH", &empty_bin)
+        .env("XDG_CACHE_HOME", dir.path().join("cache"))
+        .output()
+        .expect("running CLI");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("ffmpeg not found"),
+        "clear message, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("sudo apt install ffmpeg"),
+        "install hint, got:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("panicked"),
+        "no stack trace, got:\n{stderr}"
+    );
+    // Up front: it bails before creating a job folder or spawning the engine.
+    assert!(
+        !dir.path().join("song.stems").exists(),
+        "no job folder should be created"
+    );
 }
 
 #[test]

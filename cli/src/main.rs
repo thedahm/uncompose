@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use uncompose_core::{default_model_dir, engine, run_job, JobConfig, JobEvent};
+use uncompose_core::{default_model_dir, engine, ensure_ffmpeg, run_job, JobConfig, JobEvent};
 
 #[derive(Parser)]
 #[command(name = "uncompose", about = "Local-first music source separation")]
@@ -34,6 +34,10 @@ fn main() -> Result<()> {
 }
 
 fn separate(song: PathBuf, device: String) -> Result<()> {
+    // ffmpeg is a checked system dependency: fail up front with an install
+    // message rather than a cryptic engine stack trace once the run starts.
+    ensure_ffmpeg()?;
+
     let config = JobConfig {
         input: song.clone(),
         model_id: "htdemucs_6s".into(),
