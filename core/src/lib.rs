@@ -29,7 +29,24 @@ pub struct JobConfig {
     /// Where the last-job pointer is written after a successful run.
     pub state_dir: PathBuf,
     pub engine_python: PathBuf,
+    /// Explicit output folder (`-o`); `None` means the default next to the
+    /// input. Either way the folder is collision-suffixed, never overwritten.
+    pub output: Option<PathBuf>,
 }
+
+/// The job was cancelled (Ctrl+C): the engine was killed by SIGINT. Carried
+/// as a distinct error so callers can tell a clean cancel from a real
+/// failure and print an appropriate message / exit code.
+#[derive(Debug)]
+pub struct Cancelled;
+
+impl std::fmt::Display for Cancelled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "cancelled")
+    }
+}
+
+impl std::error::Error for Cancelled {}
 
 #[derive(Debug)]
 pub struct JobOutcome {
@@ -59,7 +76,8 @@ pub fn run_job(config: &JobConfig, mut on_event: impl FnMut(JobEvent)) -> Result
         .input
         .canonicalize()
         .with_context(|| format!("input not found: {}", config.input.display()))?;
-    let job_folder = job::create_job_folder(&input)?;
+    let base = job::job_folder_base(&input, config.output.as_deref())?;
+    let job_folder = job::create_job_folder(&base)?;
     std::fs::create_dir_all(&config.model_dir).context("creating model dir")?;
 
     let request = EngineRequest {
@@ -72,33 +90,52 @@ pub fn run_job(config: &JobConfig, mut on_event: impl FnMut(JobEvent)) -> Result
 
     let mut stems: Vec<String> = Vec::new();
     let mut done: Option<(String, String, serde_json::Value)> = None;
-    engine::run_engine(
-        &config.engine_python,
-        &request,
-        &job_folder,
-        |event| match event {
-            EngineEvent::Stage {
-                stage,
-                percent,
-                message,
-            } => on_event(JobEvent::Stage {
-                stage: stage.clone(),
-                percent: *percent,
-                message: message.clone(),
-            }),
-            EngineEvent::Stem { name, .. } => {
-                stems.push(name.clone());
-                on_event(JobEvent::Stem { name: name.clone() });
-            }
-            EngineEvent::Done {
-                engine_version,
-                device,
-                timings,
-                ..
-            } => done = Some((engine_version.clone(), device.clone(), timings.clone())),
-            EngineEvent::Error { .. } => {}
-        },
-    )?;
+    let mut promote_error: Option<anyhow::Error> = None;
+    let engine_result =
+        engine::run_engine(
+            &config.engine_python,
+            &request,
+            &job_folder,
+            |event| match event {
+                EngineEvent::Stage {
+                    stage,
+                    percent,
+                    message,
+                } => on_event(JobEvent::Stage {
+                    stage: stage.clone(),
+                    percent: *percent,
+                    message: message.clone(),
+                }),
+                EngineEvent::Stem { name, .. } => {
+                    // A stem takes its final name only once the core sees it
+                    // announced; before that it is `<stem>.wav.partial`.
+                    if let Err(e) = job::promote_stem(&job_folder, name) {
+                        promote_error.get_or_insert(e);
+                    }
+                    stems.push(name.clone());
+                    on_event(JobEvent::Stem { name: name.clone() });
+                }
+                EngineEvent::Done {
+                    engine_version,
+                    device,
+                    timings,
+                    ..
+                } => done = Some((engine_version.clone(), device.clone(), timings.clone())),
+                EngineEvent::Error { .. } => {}
+            },
+        );
+
+    if let Err(e) = engine_result {
+        // A cancel leaves no junk; a real failure keeps partials + the
+        // engine log as the diagnosable artifact.
+        if e.is::<Cancelled>() {
+            let _ = job::remove_partials(&job_folder);
+        }
+        return Err(e);
+    }
+    if let Some(e) = promote_error {
+        return Err(e);
+    }
 
     let (engine_version, device, timings) = done.context("engine exited 0 without a done event")?;
     let record = JobRecord {

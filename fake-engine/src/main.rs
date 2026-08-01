@@ -66,6 +66,10 @@ fn run() -> i32 {
         }
         "no-done" => 0,
         "hang" => {
+            // Stage a partial before hanging so a cancel test can prove the
+            // core cleans it up. It is never promoted (no stem event).
+            let partial = Path::new(output_dir).join("vocals.wav.partial");
+            std::fs::write(&partial, b"RIFF").expect("writing partial stem");
             emit(serde_json::json!({ "event": "stage", "stage": "separate" }));
             // Bounded so a kill test that orphans us doesn't leak forever.
             std::thread::sleep(std::time::Duration::from_secs(10));
@@ -77,7 +81,9 @@ fn run() -> i32 {
                 "event": "stage", "stage": "separate", "percent": 50.0
             }));
             for name in STEMS {
-                let path = Path::new(output_dir).join(format!("{name}.wav"));
+                // Stems stream as `<stem>.wav.partial`; the core promotes each
+                // to its final name when it sees the stem event.
+                let path = Path::new(output_dir).join(format!("{name}.wav.partial"));
                 std::fs::write(&path, b"RIFF").expect("writing stem file");
                 emit(serde_json::json!({
                     "event": "stem", "name": name, "path": path

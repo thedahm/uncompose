@@ -21,6 +21,7 @@ fn config(dir: &Path, input_name: &str) -> JobConfig {
         model_dir: dir.join("models"),
         state_dir: dir.join("state"),
         engine_python: support::fake_engine(),
+        output: None,
     }
 }
 
@@ -41,6 +42,11 @@ fn success_produces_stems_and_job_record() {
     assert_eq!(outcome.stems, STEMS);
     for stem in STEMS {
         assert!(outcome.job_folder.join(format!("{stem}.wav")).is_file());
+        // Partials are promoted to final names, never left behind on success.
+        assert!(!outcome
+            .job_folder
+            .join(format!("{stem}.wav.partial"))
+            .exists());
     }
     assert!(outcome.job_folder.join("engine.log").is_file());
 
@@ -131,6 +137,34 @@ fn repeated_runs_suffix_the_job_folder() {
 }
 
 #[test]
+fn output_override_places_stems_at_the_given_path() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut config = config(dir.path(), "song.wav");
+    let dest = dir.path().join("elsewhere").join("session-stems");
+    config.output = Some(dest.clone());
+
+    let outcome = run(&config).0.expect("job should succeed");
+    assert_eq!(outcome.job_folder, dest);
+    assert!(dest.join("vocals.wav").is_file());
+    assert!(dest.join("job.json").is_file());
+    assert!(!dir.path().join("song.stems").exists());
+}
+
+#[test]
+fn output_override_is_collision_suffixed_never_overwritten() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut config = config(dir.path(), "song.wav");
+    let dest = dir.path().join("stems");
+    config.output = Some(dest.clone());
+
+    let first = run(&config).0.expect("first run");
+    let second = run(&config).0.expect("second run");
+    assert_eq!(first.job_folder, dest);
+    assert_eq!(second.job_folder, dir.path().join("stems-2"));
+    assert!(first.job_folder.join("job.json").is_file(), "never reused");
+}
+
+#[test]
 fn engine_error_event_fails_with_message_and_log_tail() {
     let dir = tempfile::tempdir().expect("tempdir");
     let (outcome, _) = run(&config(dir.path(), "error.wav"));
@@ -182,6 +216,7 @@ fn missing_input_fails_before_creating_a_job_folder() {
         model_dir: dir.path().join("models"),
         state_dir: dir.path().join("state"),
         engine_python: support::fake_engine(),
+        output: None,
     };
     let err = format!("{:#}", run_job(&config, |_| ()).expect_err("should fail"));
     assert!(err.contains("input not found"), "got: {err}");
