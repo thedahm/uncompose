@@ -12,12 +12,22 @@
 //! - `no-done.*`   exit 0 without a done event
 //! - `hang.*`      emit a stage event, then sleep (bounded, so an orphan
 //!   left behind by a kill test still exits on its own)
-//! - anything else: full success, six tiny stem files
+//! - anything else: full success, tiny stem files chosen by model_id so the
+//!   core's pipeline composition (RoFormer pre-pass → htdemucs_6s) can be
+//!   exercised end to end
 
 use std::io::{Read, Write};
 use std::path::Path;
 
-const STEMS: [&str; 6] = ["vocals", "drums", "bass", "guitar", "keys", "other"];
+/// The stems a given model emits, mirroring the real engine's per-model
+/// output set. htdemucs_6s yields the full six; everything else (the
+/// RoFormer 2-stem model) yields vocals + instrumental.
+fn stems_for(model_id: &str) -> &'static [&'static str] {
+    match model_id {
+        "htdemucs_6s" => &["vocals", "drums", "bass", "guitar", "keys", "other"],
+        _ => &["vocals", "instrumental"],
+    }
+}
 
 fn main() {
     std::process::exit(run());
@@ -32,6 +42,7 @@ fn run() -> i32 {
         serde_json::from_str(&input).expect("request must be one JSON document");
     let audio_path = request["audio_path"].as_str().expect("audio_path");
     let output_dir = request["output_dir"].as_str().expect("output_dir");
+    let model_id = request["model_id"].as_str().unwrap_or_default();
 
     // Stderr is the engine's log channel; the core must route it to
     // engine.log and surface it in failure messages.
@@ -76,7 +87,7 @@ fn run() -> i32 {
             emit(serde_json::json!({
                 "event": "stage", "stage": "separate", "percent": 50.0
             }));
-            for name in STEMS {
+            for &name in stems_for(model_id) {
                 let path = Path::new(output_dir).join(format!("{name}.wav"));
                 std::fs::write(&path, b"RIFF").expect("writing stem file");
                 emit(serde_json::json!({

@@ -1,7 +1,7 @@
 //! Engine client: spawn the separation engine, feed it the request, stream
 //! its JSONL events. The engine is only ever spawned, never imported.
 
-use std::fs::File;
+use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -33,15 +33,21 @@ pub fn discover_engine_python() -> Result<PathBuf> {
 }
 
 /// Spawn the engine, write the request, and hand each stdout event to
-/// `on_event`. Engine stderr goes to `engine.log` in the job folder, never
-/// the progress UI. Returns an error on nonzero exit or a malformed stream.
+/// `on_event`. Engine stderr is appended to `log_path`, never the progress
+/// UI; a multi-step pipeline shares one `engine.log` so every call's chatter
+/// lands in one diagnosable place. Returns an error on nonzero exit or a
+/// malformed stream.
 pub fn run_engine(
     python: &Path,
     request: &EngineRequest,
-    job_folder: &Path,
+    log_path: &Path,
     mut on_event: impl FnMut(&EngineEvent),
 ) -> Result<()> {
-    let log = File::create(job_folder.join("engine.log")).context("creating engine.log")?;
+    let log = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)
+        .context("opening engine.log")?;
     let mut command = Command::new(python);
     command.args(["-m", "uncompose_engine"]);
     // Device selection is core-owned; hiding the GPU before Python starts
@@ -77,7 +83,7 @@ pub fn run_engine(
 
     let status = child.wait().context("waiting for engine")?;
     if !status.success() {
-        let tail = stderr_tail(&job_folder.join("engine.log"), 15);
+        let tail = stderr_tail(log_path, 15);
         let msg = engine_error.unwrap_or_else(|| format!("engine exited with {status}"));
         bail!("{msg}\n--- engine.log tail ---\n{tail}");
     }

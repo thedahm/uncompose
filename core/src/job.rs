@@ -40,10 +40,14 @@ pub fn create_job_folder(input: &Path) -> Result<PathBuf> {
 pub struct JobRecord {
     pub input_path: String,
     pub input_sha256: String,
-    pub model_id: String,
+    /// The preset run (e.g. `6-stem`).
+    pub preset: String,
+    /// The model ids in pipeline order (one per engine call).
+    pub models: Vec<String>,
     pub device: String,
     pub engine_version: String,
     pub stems: Vec<String>,
+    /// Per-step timings, keyed by model id.
     pub timings: serde_json::Value,
     pub outcome: String,
     pub finished_at_unix: u64,
