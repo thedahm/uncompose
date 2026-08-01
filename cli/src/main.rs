@@ -27,7 +27,7 @@ enum Command {
         /// Input audio file (WAV/MP3)
         song: PathBuf,
         /// Separation preset: 6-stem | 2-stem
-        #[arg(long, default_value = "6-stem")]
+        #[arg(long, default_value = preset::DEFAULT)]
         preset: String,
         /// Device: auto | cpu | cuda
         #[arg(long, default_value = "auto")]
