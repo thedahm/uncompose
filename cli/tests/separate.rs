@@ -19,8 +19,9 @@ fn uncompose(dir: &Path, input_name: &str) -> Command {
     cmd.args(["separate", input.to_str().expect("utf8 path")])
         .args(["--device", "cpu"])
         .env("UNCOMPOSE_ENGINE_PYTHON", support::fake_engine())
-        // Keep the model cache inside the test's tempdir.
-        .env("XDG_CACHE_HOME", dir.join("cache"));
+        // Keep the model cache and last-job pointer inside the test's tempdir.
+        .env("XDG_CACHE_HOME", dir.join("cache"))
+        .env("XDG_STATE_HOME", dir.join("state"));
     cmd
 }
 
@@ -38,7 +39,7 @@ fn separate_prints_header_progress_and_hints() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    // 5-line pre-run header: input / preset / model+license / device / output.
+    // Pre-run header: input / preset / model+license per step / device / output.
     let folder = dir.path().join("song.stems");
     assert!(stdout.contains("input"), "header input, got:\n{stdout}");
     assert!(stdout.contains("song.wav"), "input path, got:\n{stdout}");
@@ -97,6 +98,11 @@ fn separate_prints_header_progress_and_hints() {
     );
 
     assert!(folder.join("job.json").is_file());
+    // The last-job pointer records the completed job so play/open work next.
+    assert!(
+        dir.path().join("state/uncompose/last-job.json").is_file(),
+        "last-job pointer written"
+    );
 }
 
 /// A finished stage shows one line carrying the stage name and an `M:SS`
@@ -159,6 +165,32 @@ fn missing_input_fails_with_a_clear_message() {
 }
 
 #[test]
+fn output_flag_writes_stems_to_the_given_folder() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let dest = dir.path().join("my-stems");
+    let output = uncompose(dir.path(), "song.wav")
+        .args(["--output", dest.to_str().expect("utf8 path")])
+        .output()
+        .expect("running CLI");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(dest.join("vocals.wav").is_file());
+    assert!(dest.join("job.json").is_file());
+    assert!(
+        !dir.path().join("song.stems").exists(),
+        "-o replaced the default location"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains(&format!("✓ {}", dest.display())) && stdout.contains("(6 stems)"),
+        "success line names the override, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn sigint_mid_run_kills_the_job_without_a_job_record() {
     let dir = tempfile::tempdir().expect("tempdir");
     // A real Ctrl+C is delivered to the foreground process group, CLI and
@@ -192,4 +224,25 @@ fn sigint_mid_run_kills_the_job_without_a_job_record() {
     let folder = dir.path().join("hang.stems");
     assert!(folder.is_dir(), "job folder left as the artifact");
     assert!(!folder.join("job.json").exists(), "must not look complete");
+    // Ctrl+C leaves no half-written junk: every staged partial is removed.
+    let partials: Vec<_> = walk_partials(&folder);
+    assert!(partials.is_empty(), "partials left behind: {partials:?}");
+}
+
+/// Collect `*.partial` files anywhere under the folder (stage scratch dirs
+/// included) so the cancel test proves the whole tree is clean.
+fn walk_partials(dir: &Path) -> Vec<std::path::PathBuf> {
+    let mut found = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return found;
+    };
+    for entry in entries.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if path.is_dir() {
+            found.extend(walk_partials(&path));
+        } else if path.extension().is_some_and(|x| x == "partial") {
+            found.push(path);
+        }
+    }
+    found
 }

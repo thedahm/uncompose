@@ -1,8 +1,8 @@
 //! uncompose: thin clap CLI over uncompose-core's `run_job`. The interface
-//! layer owns only the printed surface (#31): a 5-line pre-run header, per-
-//! stage progress lines that update in place and collapse with their elapsed
+//! layer owns only the printed surface (#31): a pre-run header, per-stage
+//! progress lines that update in place and collapse with their elapsed
 //! time, and the always-on post-run hint lines. Exit code is 0 on success,
-//! nonzero with an engine.log tail on stderr on failure.
+//! 130 on Ctrl+C, nonzero with an engine.log tail on stderr on failure.
 
 use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
@@ -11,7 +11,9 @@ use std::time::Instant;
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use uncompose_core::preset::{self, Preset};
-use uncompose_core::{default_model_dir, engine, run_job, JobConfig, JobEvent};
+use uncompose_core::{
+    default_model_dir, engine, resolve_device, run_job, state, Cancelled, JobConfig, JobEvent,
+};
 
 #[derive(Parser)]
 #[command(name = "uncompose", about = "Local-first music source separation")]
@@ -27,11 +29,14 @@ enum Command {
         /// Input audio file (WAV/MP3)
         song: PathBuf,
         /// Separation preset: 6-stem | 2-stem
-        #[arg(long, default_value = preset::DEFAULT)]
+        #[arg(long, default_value = "6-stem")]
         preset: String,
         /// Device: auto | cpu | cuda
         #[arg(long, default_value = "auto")]
         device: String,
+        /// Output folder (default: `<song>.stems` next to the input)
+        #[arg(short = 'o', long = "output")]
+        output: Option<PathBuf>,
     },
 }
 
@@ -42,20 +47,37 @@ fn main() -> Result<()> {
             song,
             preset,
             device,
-        } => separate(song, preset, device),
+            output,
+        } => separate(song, preset, device, output),
     }
 }
 
-fn separate(song: PathBuf, preset_name: String, device: String) -> Result<()> {
-    let preset = preset::lookup(&preset_name)
-        .ok_or_else(|| anyhow!("unknown preset: {preset_name} (try 6-stem or 2-stem)"))?;
+fn separate(
+    song: PathBuf,
+    preset_name: String,
+    device: String,
+    output: Option<PathBuf>,
+) -> Result<()> {
+    // Survive our own Ctrl+C so we can clean up before exiting. The engine
+    // shares our process group and dies on the same SIGINT; the core then
+    // sees it was cancelled and removes any partial stems.
+    install_sigint_handler();
+
+    let preset = preset::by_name(&preset_name)
+        .ok_or_else(|| anyhow!("unknown preset '{preset_name}': try 6-stem or 2-stem"))?;
+    // Resolve the device up front so the pre-run header shows where the run
+    // will actually happen, not the literal `auto`.
+    let device = resolve_device(&device)?;
 
     let config = JobConfig {
         input: song.clone(),
-        model_id: preset.model_id.into(),
+        preset,
+        parameters: serde_json::json!({}),
         device: device.clone(),
         model_dir: default_model_dir(),
+        state_dir: state::default_state_dir(),
         engine_python: engine::discover_engine_python()?,
+        output,
     };
 
     let mut progress = Progress::new();
@@ -63,7 +85,18 @@ fn separate(song: PathBuf, preset_name: String, device: String) -> Result<()> {
         JobEvent::Started { job_folder } => print_header(&song, preset, &device, &job_folder),
         JobEvent::Stage { stage, percent, .. } => progress.stage(&stage, percent),
         JobEvent::Stem { name } => progress.stem(&name),
-    })?;
+    });
+
+    let outcome = match outcome {
+        Ok(outcome) => outcome,
+        Err(e) if e.is::<Cancelled>() => {
+            progress.finish();
+            eprintln!("cancelled; removed partial stems");
+            // 128 + SIGINT, the conventional interrupted-by-Ctrl+C code.
+            std::process::exit(130);
+        }
+        Err(e) => return Err(e),
+    };
     progress.finish();
 
     print_hints(
@@ -74,21 +107,23 @@ fn separate(song: PathBuf, preset_name: String, device: String) -> Result<()> {
     Ok(())
 }
 
-/// The 5-line pre-run header, printed once the job folder is resolved and
-/// before any slow work: input / preset / model (with relayed license) /
-/// device / output.
+/// The pre-run header, printed once the job folder is resolved and before
+/// any slow work: input / preset / one model line per pipeline step (with
+/// relayed license) / device / output.
 fn print_header(song: &Path, preset: &Preset, device: &str, job_folder: &Path) {
     println!("  {:<8} {}", "input", song.display());
     println!(
         "  {:<8} {}  ({})",
         "preset",
-        preset.id,
+        preset.name,
         preset.stems.join(", ")
     );
-    println!(
-        "  {:<8} {}  — weights: {}",
-        "model", preset.model_id, preset.license
-    );
+    for step in preset.steps {
+        println!(
+            "  {:<8} {}  — weights: {}",
+            "model", step.model.id, step.model.license
+        );
+    }
     println!("  {:<8} {}", "device", device);
     println!("  {:<8} {}", "output", job_folder.display());
     println!();
@@ -198,4 +233,20 @@ impl Progress {
 
 fn fmt_elapsed(secs: u64) -> String {
     format!("{}:{:02}", secs / 60, secs % 60)
+}
+
+extern "C" fn on_sigint(_sig: libc::c_int) {}
+
+/// Replace the default SIGINT disposition with a no-op handler: on Ctrl+C the
+/// engine (same process group) still dies, but this process keeps running long
+/// enough for the core to clean up and report the cancellation.
+///
+/// It must be a real handler, not `SIG_IGN`: exec resets *handled* signals to
+/// their default, so the spawned engine still dies on SIGINT, but it *inherits*
+/// `SIG_IGN` — which would make the engine ignore Ctrl+C and never stop.
+fn install_sigint_handler() {
+    // SAFETY: the handler does nothing, so it is trivially async-signal-safe.
+    unsafe {
+        libc::signal(libc::SIGINT, on_sigint as *const () as libc::sighandler_t);
+    }
 }
