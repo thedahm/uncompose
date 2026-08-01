@@ -90,6 +90,10 @@ extern "C" fn on_sigint(_sig: libc::c_int) {}
 /// Replace the default SIGINT disposition with a no-op handler: on Ctrl+C the
 /// engine (same process group) still dies, but this process keeps running long
 /// enough for the core to clean up and report the cancellation.
+///
+/// It must be a real handler, not `SIG_IGN`: exec resets *handled* signals to
+/// their default, so the spawned engine still dies on SIGINT, but it *inherits*
+/// `SIG_IGN` — which would make the engine ignore Ctrl+C and never stop.
 fn install_sigint_handler() {
     // SAFETY: the handler does nothing, so it is trivially async-signal-safe.
     unsafe {

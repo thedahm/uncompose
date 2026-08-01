@@ -13,8 +13,8 @@ use sha2::{Digest, Sha256};
 /// The default Job Folder path for an input: `<input basename>.stems/` next
 /// to the input. An explicit `-o` override replaces it wholesale.
 pub fn job_folder_base(input: &Path, output: Option<&Path>) -> Result<PathBuf> {
-    if let Some(o) = output {
-        return Ok(o.to_path_buf());
+    if let Some(output) = output {
+        return Ok(output.to_path_buf());
     }
     let parent = input.parent().unwrap_or(Path::new("."));
     let stem = input
