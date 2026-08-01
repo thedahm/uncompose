@@ -12,6 +12,9 @@ import os
 import sys
 import time
 
+import torch
+from audio_separator.separator import Separator
+
 # Models known to this engine: audio-separator filename plus the mapping
 # from audio-separator's stem names to Uncompose's preset-level stem names
 # (keys.wav, not piano.wav — the model is piano-trained, the name is stable).
@@ -54,15 +57,10 @@ def run(request: dict, emit) -> int:
     if model is None:
         raise ValueError(f"unknown model id: {request['model_id']}")
 
-    if request.get("device") == "cpu":
-        os.environ["CUDA_VISIBLE_DEVICES"] = ""
-
     logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 
     emit({"event": "stage", "stage": "model_load", "message": request["model_id"]})
     t0 = time.monotonic()
-    from audio_separator.separator import Separator
-
     separator = Separator(
         output_dir=request["output_dir"],
         model_file_dir=request["model_dir"],
@@ -87,8 +85,6 @@ def run(request: dict, emit) -> int:
             missing.append(stem_name)
     if missing:
         raise RuntimeError(f"separation produced no output for: {', '.join(missing)}")
-
-    import torch
 
     emit(
         {

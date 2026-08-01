@@ -42,8 +42,14 @@ pub fn run_engine(
     mut on_event: impl FnMut(&EngineEvent),
 ) -> Result<()> {
     let log = File::create(job_folder.join("engine.log")).context("creating engine.log")?;
-    let mut child = Command::new(python)
-        .args(["-m", "uncompose_engine"])
+    let mut command = Command::new(python);
+    command.args(["-m", "uncompose_engine"]);
+    // Device selection is core-owned; hiding the GPU before Python starts
+    // is the one way to force CPU that no library can re-decide later.
+    if request.device == "cpu" {
+        command.env("CUDA_VISIBLE_DEVICES", "");
+    }
+    let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::from(log))
