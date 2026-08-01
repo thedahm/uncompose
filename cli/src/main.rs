@@ -4,11 +4,12 @@
 //! time, and the always-on post-run hint lines. Exit code is 0 on success,
 //! 130 on Ctrl+C, nonzero with an engine.log tail on stderr on failure.
 
-use std::io::{IsTerminal, Write};
+use std::io::{ErrorKind, IsTerminal, Write};
 use std::path::{Path, PathBuf};
+use std::process::Command as Process;
 use std::time::Instant;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
 use uncompose_core::preset::{self, Preset};
 use uncompose_core::{
@@ -38,6 +39,13 @@ enum Command {
         #[arg(short = 'o', long = "output")]
         output: Option<PathBuf>,
     },
+    /// Audition a stem of the last job with mpv (falling back to ffplay)
+    Play {
+        /// Stem name (e.g. `vocals`) or a path to an audio file
+        stem: String,
+    },
+    /// Open the last job's folder in the file manager
+    Open,
 }
 
 fn main() -> Result<()> {
@@ -49,6 +57,8 @@ fn main() -> Result<()> {
             device,
             output,
         } => separate(song, preset, device, output),
+        Command::Play { stem } => play(stem),
+        Command::Open => open(),
     }
 }
 
@@ -105,6 +115,74 @@ fn separate(
         outcome.stems.first(),
     );
     Ok(())
+}
+
+/// The last job's folder from the pointer `separate` writes on success;
+/// `play`/`open` resolve against it so they work without an argument.
+fn last_job_folder() -> Result<PathBuf> {
+    state::read_last_job(&state::default_state_dir())?
+        .map(|last| last.job_folder)
+        .ok_or_else(|| anyhow!("no completed job yet: run `uncompose separate` first"))
+}
+
+/// Audition a stem: resolve the target, then shell out to a player. mpv is
+/// preferred; ffplay is the fallback; if neither is installed, say so plainly
+/// instead of leaking a spawn error.
+fn play(stem: String) -> Result<()> {
+    let target = resolve_stem(&stem)?;
+    for player in ["mpv", "ffplay"] {
+        let mut cmd = Process::new(player);
+        // ffplay otherwise opens a video window and waits; keep the audition
+        // audio-only and self-terminating.
+        if player == "ffplay" {
+            cmd.args(["-autoexit", "-nodisp"]);
+        }
+        cmd.arg(&target);
+        match cmd.status() {
+            Ok(status) if status.success() => return Ok(()),
+            Ok(status) => bail!("{player} exited with {status}"),
+            Err(e) if e.kind() == ErrorKind::NotFound => continue,
+            Err(e) => return Err(e).with_context(|| format!("spawning {player}")),
+        }
+    }
+    bail!("no audio player found: install mpv or ffplay to use `uncompose play`")
+}
+
+/// A stem argument is either a path to an existing audio file (path
+/// addressable) or a stem name resolved against the last job's folder.
+fn resolve_stem(stem: &str) -> Result<PathBuf> {
+    let as_path = Path::new(stem);
+    if as_path.is_file() {
+        return Ok(as_path.to_path_buf());
+    }
+    let folder = last_job_folder()?;
+    let name = if stem.ends_with(".wav") {
+        stem.to_string()
+    } else {
+        format!("{stem}.wav")
+    };
+    let target = folder.join(&name);
+    if !target.is_file() {
+        bail!(
+            "stem not found: {} (looked in last job {})",
+            name,
+            folder.display()
+        );
+    }
+    Ok(target)
+}
+
+/// Open the last job's folder with xdg-open.
+fn open() -> Result<()> {
+    let folder = last_job_folder()?;
+    match Process::new("xdg-open").arg(&folder).status() {
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => bail!("xdg-open exited with {status}"),
+        Err(e) if e.kind() == ErrorKind::NotFound => {
+            bail!("xdg-open not found: install xdg-utils to use `uncompose open`")
+        }
+        Err(e) => Err(e).context("spawning xdg-open"),
+    }
 }
 
 /// The pre-run header, printed once the job folder is resolved and before
