@@ -62,6 +62,12 @@ pub struct JobOutcome {
 /// Progress events surfaced to the interface layer.
 #[derive(Debug)]
 pub enum JobEvent {
+    /// The job folder is resolved and created; no engine work has started
+    /// yet. Fires first so a caller can print the output path in its pre-run
+    /// header before the slow part begins.
+    Started {
+        job_folder: PathBuf,
+    },
     Stage {
         stage: String,
         percent: Option<f64>,
@@ -92,6 +98,9 @@ pub fn run_job(config: &JobConfig, mut on_event: impl FnMut(JobEvent)) -> Result
 
     let base = job::job_folder_base(&input, config.output.as_deref())?;
     let job_folder = job::create_job_folder(&base)?;
+    on_event(JobEvent::Started {
+        job_folder: job_folder.clone(),
+    });
     std::fs::create_dir_all(&config.model_dir).context("creating model dir")?;
     let log_path = job_folder.join("engine.log");
 

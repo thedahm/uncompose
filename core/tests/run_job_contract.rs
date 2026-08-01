@@ -55,6 +55,14 @@ fn six_stem_composes_two_engine_calls_into_six_stems() {
             .exists());
     }
 
+    // The Started event fires first, carrying the resolved job folder, then
+    // stage events stream through before stems.
+    assert!(
+        matches!(&events[0], JobEvent::Started { job_folder } if job_folder == &outcome.job_folder),
+        "first event announces the job folder"
+    );
+    assert!(matches!(&events[1], JobEvent::Stage { stage, .. } if stage == "model_load"));
+
     // Two engine calls: the RoFormer pre-pass on the song, then htdemucs on
     // the instrumental it produced.
     let log = std::fs::read_to_string(outcome.job_folder.join("engine.log")).expect("engine.log");
@@ -141,7 +149,8 @@ fn two_stem_runs_roformer_alone() {
     assert!(outcome.job_folder.join("instrumental.wav").is_file());
 
     // Stage events stream before stems.
-    assert!(matches!(&events[0], JobEvent::Stage { stage, .. } if stage == "model_load"));
+    // Started fires first; stage events stream through before stems.
+    assert!(matches!(&events[1], JobEvent::Stage { stage, .. } if stage == "model_load"));
 
     let log = std::fs::read_to_string(outcome.job_folder.join("engine.log")).expect("engine.log");
     assert_eq!(
