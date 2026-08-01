@@ -25,6 +25,12 @@ The language-agnostic protocol between the core and a separation engine: audio, 
 parameters in; stem files, progress events, and timings out.
 _Avoid_: plugin API, engine interface
 
+**Engine Environment**:
+The Python environment a separation engine runs in. On a user machine the core builds it at
+runtime with uv, pinned to the product's own version; in a dev checkout it is the `uv sync`
+venv in `engine/`.
+_Avoid_: venv (in user-facing text), runtime, sandbox
+
 **Model**:
 A specific separation checkpoint an engine can run (e.g. `htdemucs_6s`, Kim Mel-Band RoFormer),
 carrying its own license status and hardware tier.

@@ -11,7 +11,9 @@ by the Engine Contract (ADR-0001, ADR-0003). Setup:
 - Rust side: a stable toolchain; `cargo test` at the repo root runs everything.
 - Engine side: [uv](https://docs.astral.sh/uv/), then `uv sync` in `engine/` and
   `uv run pytest` there. Tests fake audio-separator at its Python interface, so they
-  need no GPU and load no models.
+  need no GPU and load no models. A checkout's `engine/.venv` is also what the CLI
+  runs when invoked from inside the repo — dev machines never trigger the runtime
+  engine-environment provisioning that PyPI installs use (ADR-0004).
 
 Development is test-first at the Engine Contract seam, and that seam is the only
 substitution point: Rust tests run the real core and CLI against `fake-engine`, a small

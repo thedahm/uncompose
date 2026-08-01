@@ -16,24 +16,51 @@ use crate::Cancelled;
 /// process group, so an engine killed by it means the user cancelled.
 const SIGINT: i32 = 2;
 
-/// Locate the dev-managed engine interpreter (M1: `uv sync` venv).
-/// `$UNCOMPOSE_ENGINE_PYTHON` wins; otherwise walk up from the current
-/// directory looking for `engine/.venv/bin/python`.
-pub fn discover_engine_python() -> Result<PathBuf> {
+/// Shown when the Engine Environment must be provisioned but uv is missing.
+/// Linux-only install pointer, matching the ffmpeg preflight's shape.
+const UV_MISSING: &str = "uv not found on your PATH. Uncompose builds its engine environment \
+with uv on first run.
+Install it per https://docs.astral.sh/uv/getting-started/installation/, for example:
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+then run uncompose again.";
+
+/// Resolve the engine interpreter, in order: `$UNCOMPOSE_ENGINE_PYTHON`
+/// (tests, overrides), a dev checkout's `engine/.venv` found by walking up
+/// from the current directory, and finally the runtime-provisioned Engine
+/// Environment — built with uv on first use, which is the only path a
+/// PyPI-installed uncompose ever takes.
+pub fn resolve_engine_python(
+    on_event: impl FnMut(crate::provision::ProvisionEvent),
+) -> Result<PathBuf> {
     if let Ok(p) = std::env::var("UNCOMPOSE_ENGINE_PYTHON") {
         return Ok(PathBuf::from(p));
     }
-    let mut dir = std::env::current_dir().context("getting current dir")?;
+    if let Some(dev) = dev_engine_python() {
+        return Ok(dev);
+    }
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let Some(uv) = crate::deps::find_on_path(&path, "uv") else {
+        bail!("{UV_MISSING}");
+    };
+    crate::provision::ensure_engine_env(
+        &uv,
+        &crate::provision::default_engine_env_dir(),
+        crate::provision::ENGINE_VERSION,
+        on_event,
+    )
+}
+
+/// The dev-managed interpreter (`uv sync` venv), when running from inside a
+/// checkout: walk up from the current directory for `engine/.venv/bin/python`.
+fn dev_engine_python() -> Option<PathBuf> {
+    let mut dir = std::env::current_dir().ok()?;
     loop {
         let candidate = dir.join("engine/.venv/bin/python");
         if candidate.is_file() {
-            return Ok(candidate);
+            return Some(candidate);
         }
         if !dir.pop() {
-            bail!(
-                "engine interpreter not found: set UNCOMPOSE_ENGINE_PYTHON or run \
-                 `uv sync` in engine/ and invoke from inside the repo"
-            );
+            return None;
         }
     }
 }

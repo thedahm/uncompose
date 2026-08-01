@@ -1,0 +1,59 @@
+# Tag-driven release (SemVer 0.x, #9): pushing v* builds both PyPI packages —
+# the maturin-built `uncompose` CLI wheel and the pure-Python
+# `uncompose-engine` wheel the core provisions at runtime — and publishes them
+# together. Trusted publishing (OIDC), no long-lived PyPI token in secrets.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  # The CLI wheel: Linux x86_64 only, matching the v0.1 platform claim.
+  # manylinux via the maturin container so the binary runs on machines older
+  # than the CI runner.
+  build-cli:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release --locked --out dist
+          manylinux: auto
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-cli
+          path: dist
+
+  build-engine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv build --out-dir ../dist
+        working-directory: engine
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-engine
+          path: dist
+
+  publish:
+    needs: [build-cli, build-engine]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist

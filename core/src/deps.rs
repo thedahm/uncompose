@@ -27,7 +27,7 @@ pub fn ensure_ffmpeg() -> Result<()> {
 }
 
 /// Find an executable `name` in a PATH-style variable, if present.
-fn find_on_path(path: &OsStr, name: &str) -> Option<PathBuf> {
+pub(crate) fn find_on_path(path: &OsStr, name: &str) -> Option<PathBuf> {
     std::env::split_paths(path)
         .map(|dir| dir.join(name))
         .find(|candidate| is_executable_file(candidate))
