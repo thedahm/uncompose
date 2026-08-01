@@ -8,7 +8,7 @@
 //!
 //! - `error.*`     emit an error event, exit 1
 //! - `crash.*`     die mid-run with no error event, exit 1
-//! - `malformed.*` emit a line that is not a contract event
+//! - `malformed.*` emit a line that is not a contract event, exit 0
 //! - `no-done.*`   exit 0 without a done event
 //! - `hang.*`      emit a stage event, then sleep (bounded, so an orphan
 //!   left behind by a kill test still exits on its own)
@@ -58,9 +58,11 @@ fn run() -> i32 {
             eprintln!("fake-engine: dying without an error event");
             1
         }
+        // Exits 0: the malformed line must fail the job on its own, without
+        // an exit status to hide behind.
         "malformed" => {
             println!("this is not a contract event");
-            1
+            0
         }
         "no-done" => 0,
         "hang" => {

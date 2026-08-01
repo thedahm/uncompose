@@ -2,9 +2,13 @@
 //! printed surface, exit codes, and kill behavior. Same seam as the core
 //! tests, observed one level higher.
 
+// Same helper as the core's contract tests; included by path so the two
+// suites can't drift apart.
+#[path = "../../core/tests/support/mod.rs"]
 mod support;
 
 use std::io::{BufRead, BufReader};
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
@@ -83,8 +87,12 @@ fn missing_input_fails_with_a_clear_message() {
 #[test]
 fn sigint_mid_run_kills_the_job_without_a_job_record() {
     let dir = tempfile::tempdir().expect("tempdir");
+    // A real Ctrl+C is delivered to the foreground process group, CLI and
+    // engine both; give the CLI its own group so the test can do the same
+    // without the engine surviving as an orphan.
     let mut child = uncompose(dir.path(), "hang.wav")
         .stdout(Stdio::piped())
+        .process_group(0)
         .spawn()
         .expect("spawning CLI");
 
@@ -100,7 +108,7 @@ fn sigint_mid_run_kills_the_job_without_a_job_record() {
     assert!(saw_stage, "CLI never reached the hanging stage");
 
     let kill = Command::new("kill")
-        .args(["-INT", &child.id().to_string()])
+        .args(["-INT", "--", &format!("-{}", child.id())])
         .status()
         .expect("sending SIGINT");
     assert!(kill.success());
