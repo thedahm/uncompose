@@ -5,6 +5,8 @@
 pub mod contract;
 pub mod engine;
 pub mod job;
+pub mod models;
+pub mod registry;
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
