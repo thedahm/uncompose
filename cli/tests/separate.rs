@@ -19,8 +19,9 @@ fn uncompose(dir: &Path, input_name: &str) -> Command {
     cmd.args(["separate", input.to_str().expect("utf8 path")])
         .args(["--device", "cpu"])
         .env("UNCOMPOSE_ENGINE_PYTHON", support::fake_engine())
-        // Keep the model cache inside the test's tempdir.
-        .env("XDG_CACHE_HOME", dir.join("cache"));
+        // Keep the model cache and last-job pointer inside the test's tempdir.
+        .env("XDG_CACHE_HOME", dir.join("cache"))
+        .env("XDG_STATE_HOME", dir.join("state"));
     cmd
 }
 
@@ -49,6 +50,11 @@ fn separate_prints_header_progress_and_outcome() {
     let folder = dir.path().join("song.stems");
     assert!(stdout.contains(&format!("done: 6 stems in {}", folder.display())));
     assert!(folder.join("job.json").is_file());
+    // The last-job pointer records the completed job so play/open work next.
+    assert!(
+        dir.path().join("state/uncompose/last-job.json").is_file(),
+        "last-job pointer written"
+    );
 }
 
 #[test]
