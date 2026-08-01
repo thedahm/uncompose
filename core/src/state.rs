@@ -33,18 +33,12 @@ pub fn write_last_job(job_folder: &Path) -> Result<()> {
 /// The most recent job folder, or a clear error pointing at `separate` when
 /// no job has been run yet.
 pub fn read_last_job() -> Result<PathBuf> {
-    let pointer = last_job_pointer();
-    let raw = std::fs::read_to_string(&pointer)
-        .map_err(|_| no_previous_job())
-        .and_then(|s| {
-            let trimmed = s.trim().to_string();
-            if trimmed.is_empty() {
-                Err(no_previous_job())
-            } else {
-                Ok(trimmed)
-            }
-        })?;
-    Ok(PathBuf::from(raw))
+    let contents = std::fs::read_to_string(last_job_pointer()).map_err(|_| no_previous_job())?;
+    let trimmed = contents.trim();
+    if trimmed.is_empty() {
+        return Err(no_previous_job());
+    }
+    Ok(PathBuf::from(trimmed))
 }
 
 fn no_previous_job() -> anyhow::Error {
