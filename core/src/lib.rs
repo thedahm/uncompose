@@ -33,6 +33,7 @@ pub struct JobOutcome {
 pub enum JobEvent {
     Stage {
         stage: String,
+        percent: Option<f64>,
         message: Option<String>,
     },
     Stem {
@@ -67,8 +68,13 @@ pub fn run_job(config: &JobConfig, mut on_event: impl FnMut(JobEvent)) -> Result
         &request,
         &job_folder,
         |event| match event {
-            EngineEvent::Stage { stage, message } => on_event(JobEvent::Stage {
+            EngineEvent::Stage {
+                stage,
+                percent,
+                message,
+            } => on_event(JobEvent::Stage {
                 stage: stage.clone(),
+                percent: *percent,
                 message: message.clone(),
             }),
             EngineEvent::Stem { name, .. } => {

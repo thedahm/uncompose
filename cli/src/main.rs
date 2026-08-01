@@ -47,7 +47,7 @@ fn separate(song: PathBuf, device: String) -> Result<()> {
     println!("device: {}", config.device);
 
     let outcome = run_job(&config, |event| match event {
-        JobEvent::Stage { stage, message } => match message {
+        JobEvent::Stage { stage, message, .. } => match message {
             Some(msg) => println!("[{stage}] {msg}"),
             None => println!("[{stage}]"),
         },

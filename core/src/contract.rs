@@ -27,6 +27,8 @@ pub enum EngineEvent {
     Stage {
         stage: String,
         #[serde(default)]
+        percent: Option<f64>,
+        #[serde(default)]
         message: Option<String>,
     },
     /// A stem file reached its final name inside output_dir.
