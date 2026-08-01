@@ -7,16 +7,13 @@
 #[path = "../../core/tests/support/mod.rs"]
 mod support;
 
-use std::os::unix::fs::PermissionsExt;
+#[path = "../../core/tests/support/fake_uv.rs"]
+mod fake_uv;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-fn write_executable(path: &Path, contents: &str) {
-    std::fs::write(path, contents).expect("writing executable");
-    let mut perms = std::fs::metadata(path).expect("metadata").permissions();
-    perms.set_mode(0o755);
-    std::fs::set_permissions(path, perms).expect("chmod");
-}
+use fake_uv::{uv_log, write_executable, write_fake_uv};
 
 /// A hermetic PATH dir holding a stub ffmpeg and a fake uv whose `venv`
 /// verb installs the fake engine as the new environment's python.
@@ -24,21 +21,7 @@ fn bin_dir(dir: &Path) -> PathBuf {
     let bin = dir.join("bin");
     std::fs::create_dir_all(&bin).expect("creating bin dir");
     write_executable(&bin.join("ffmpeg"), "#!/bin/sh\n");
-    let uv = format!(
-        r#"#!/bin/sh
-# The CLI runs us on a hermetic PATH; restore one for mkdir/cp below.
-PATH=/usr/bin:/bin
-echo "$@" >> "{log}"
-if [ "$1" = venv ]; then
-  for a; do env_dir=$a; done
-  mkdir -p "$env_dir/bin"
-  cp "{engine}" "$env_dir/bin/python"
-fi
-"#,
-        log = dir.join("uv.log").display(),
-        engine = support::fake_engine().display(),
-    );
-    write_executable(&bin.join("uv"), &uv);
+    write_fake_uv(&bin, dir, Some(&support::fake_engine()));
     bin
 }
 
@@ -57,10 +40,6 @@ fn uncompose(dir: &Path, input_name: &str) -> Command {
         .env("XDG_STATE_HOME", dir.join("state"))
         .env("XDG_DATA_HOME", dir.join("data"));
     cmd
-}
-
-fn uv_log(dir: &Path) -> String {
-    std::fs::read_to_string(dir.join("uv.log")).unwrap_or_default()
 }
 
 #[test]

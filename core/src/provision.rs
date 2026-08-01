@@ -101,9 +101,22 @@ fn marker_matches(marker: &Path, engine_version: &str) -> bool {
 /// Run one uv invocation, turning a nonzero exit into a clear error. uv's
 /// own stderr passes through: its progress output is the download UI.
 fn run_uv(uv: &Path, command: &mut Command, what: &str) -> Result<()> {
-    let status = command
-        .status()
-        .with_context(|| format!("running {} while {what}", uv.display()))?;
+    // ETXTBSY retry (Linux, 26): a freshly written executable can be held
+    // open by another thread's in-flight fork/exec (the write fd is
+    // inherited until the child execs), failing our exec. The same race
+    // cargo retries around. Only tests rewrite the spawned "uv", but the
+    // guard is harmless for the real one.
+    let mut status = command.status();
+    for _ in 0..10 {
+        match &status {
+            Err(e) if e.raw_os_error() == Some(26) => {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                status = command.status();
+            }
+            _ => break,
+        }
+    }
+    let status = status.with_context(|| format!("running {} while {what}", uv.display()))?;
     if !status.success() {
         bail!("uv failed while {what} (exit: {status})");
     }

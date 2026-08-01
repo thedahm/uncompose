@@ -4,37 +4,17 @@
 //! contract suite substitutes the fake engine — no real uv, no torch, no
 //! network.
 
-use std::os::unix::fs::PermissionsExt;
+#[path = "support/fake_uv.rs"]
+mod fake_uv;
+
 use std::path::{Path, PathBuf};
 
+use fake_uv::{uv_log, write_executable};
 use uncompose_core::provision::ensure_engine_env;
 
-/// Write a fake `uv` that logs every invocation's argv to `<dir>/uv.log`
-/// and, on `venv`, creates the environment's `bin/python`.
+/// An argv-logging fake uv whose `venv` installs an inert stub python.
 fn write_fake_uv(dir: &Path) -> PathBuf {
-    let log = dir.join("uv.log");
-    let script = format!(
-        r#"#!/bin/sh
-echo "$@" >> "{log}"
-if [ "$1" = venv ]; then
-  for a; do env_dir=$a; done
-  mkdir -p "$env_dir/bin"
-  printf '#!/bin/sh\n' > "$env_dir/bin/python"
-  chmod +x "$env_dir/bin/python"
-fi
-"#,
-        log = log.display()
-    );
-    let path = dir.join("uv");
-    std::fs::write(&path, script).expect("writing fake uv");
-    let mut perms = std::fs::metadata(&path).expect("metadata").permissions();
-    perms.set_mode(0o755);
-    std::fs::set_permissions(&path, perms).expect("chmod");
-    path
-}
-
-fn uv_log(dir: &Path) -> String {
-    std::fs::read_to_string(dir.join("uv.log")).unwrap_or_default()
+    fake_uv::write_fake_uv(dir, dir, None)
 }
 
 #[test]
@@ -127,10 +107,7 @@ fn an_env_holding_an_older_engine_is_rebuilt_on_upgrade() {
 fn a_failing_uv_surfaces_an_error_and_leaves_no_complete_env() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let path = tmp.path().join("uv");
-    std::fs::write(&path, "#!/bin/sh\nexit 1\n").expect("writing failing uv");
-    let mut perms = std::fs::metadata(&path).expect("metadata").permissions();
-    perms.set_mode(0o755);
-    std::fs::set_permissions(&path, perms).expect("chmod");
+    write_executable(&path, "#!/bin/sh\nexit 1\n");
     let env_dir = tmp.path().join("engine-env");
 
     let err = ensure_engine_env(&path, &env_dir, "0.1.0", |_| {})
