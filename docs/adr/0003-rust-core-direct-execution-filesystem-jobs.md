@@ -41,11 +41,15 @@ property is the invariant worth protecting.
 
 - **Location and naming**: default is next to the input file, `<input basename>.stems/`
   (`-o` overrides). Collisions never overwrite: `.stems-2/`, `.stems-3/`, ….
-- **Stage-then-rename**: jobs run in a hidden staging folder (`.<name>.stems.partial/`) renamed
-  into place on success, so a visible `.stems` folder is always a complete, good job.
-- **Failure**: staging folder is kept (job record with the error, engine log) as the
-  diagnosable artifact; the CLI prints the stderr tail and exits nonzero.
-- **Cancel**: Ctrl+C kills the engine process group and deletes the staging folder.
+- **Staging**: stems stream into the final job folder as `<stem>.wav.partial`, each renamed on
+  completion; `job.json` is written last, and its presence is the completion marker — a folder
+  with a `job.json` is a complete, good job. (Revised from an earlier
+  rename-the-whole-hidden-folder scheme after the [#17](https://github.com/thedahm/uncompose/issues/17)
+  prototype reaction: in-folder partials keep the printed/openable folder path stable from the
+  first second of a run. Escalate to a `.partials/` subdir only if flat partials prove noisy.)
+- **Failure**: the folder is kept with its `.partial` files and engine log, and no `job.json` —
+  the diagnosable artifact; the CLI prints the stderr tail and exits nonzero.
+- **Cancel**: Ctrl+C kills the engine process group and removes the partial files.
 - **Retries: none.** Local deterministic work; retry is the user rerunning.
 
 ## Progress
