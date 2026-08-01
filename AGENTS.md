@@ -15,3 +15,7 @@ The five canonical triage roles, using their default label strings. See `docs/ag
 ### Domain docs
 
 Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### AFK workflow
+
+Sandcastle drains `ready-for-agent` tickets on named branches; humans merge. See `docs/agents/afk-workflow.md`.

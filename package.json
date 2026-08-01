@@ -1,0 +1,13 @@
+{
+  "name": "uncompose-workflow",
+  "private": true,
+  "description": "Host-side tooling for the Sandcastle AFK workflow (.sandcastle/). Not part of the shipped product.",
+  "scripts": {
+    "sandcastle": "npx tsx .sandcastle/main.mts"
+  },
+  "devDependencies": {
+    "@ai-hero/sandcastle": "^0.12.0",
+    "tsx": "^4.19.0",
+    "typescript": "^7.0.2"
+  }
+}
