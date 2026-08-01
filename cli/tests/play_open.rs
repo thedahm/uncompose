@@ -19,6 +19,12 @@ fn separate(home: &Path) -> PathBuf {
     let status = Command::new(env!("CARGO_BIN_EXE_uncompose"))
         .args(["separate", input.to_str().unwrap(), "--device", "cpu"])
         .env("UNCOMPOSE_ENGINE_PYTHON", support::fake_engine())
+        // separate checks for ffmpeg up front; a stub on a hermetic PATH
+        // keeps the seeding run independent of the host machine.
+        .env(
+            "PATH",
+            fake_bin(home, &["ffmpeg"], &home.join("unused.log")),
+        )
         .env("XDG_CACHE_HOME", home.join("cache"))
         .env("XDG_STATE_HOME", home.join("state"))
         .output()

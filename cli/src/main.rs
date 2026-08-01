@@ -15,7 +15,8 @@ use uncompose_core::fetch::{ensure_model, FetchEvent, HttpFetcher};
 use uncompose_core::preset::{self, Preset};
 use uncompose_core::registry;
 use uncompose_core::{
-    default_model_dir, engine, resolve_device, run_job, state, Cancelled, JobConfig, JobEvent,
+    default_model_dir, engine, ensure_ffmpeg, resolve_device, run_job, state, Cancelled, JobConfig,
+    JobEvent,
 };
 
 #[derive(Parser)]
@@ -180,6 +181,10 @@ fn separate(
     // shares our process group and dies on the same SIGINT; the core then
     // sees it was cancelled and removes any partial stems.
     install_sigint_handler();
+
+    // ffmpeg is a checked system dependency: fail up front with an install
+    // message rather than a cryptic engine stack trace once the run starts.
+    ensure_ffmpeg()?;
 
     let preset = preset::by_name(&preset_name)
         .ok_or_else(|| anyhow!("unknown preset '{preset_name}': try 6-stem or 2-stem"))?;

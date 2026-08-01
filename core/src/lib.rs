@@ -3,12 +3,15 @@
 //! terminal code lives here; `run_job` streams typed events to its caller.
 
 pub mod contract;
+pub mod deps;
 pub mod engine;
 pub mod fetch;
 pub mod job;
 pub mod preset;
 pub mod registry;
 pub mod state;
+
+pub use deps::ensure_ffmpeg;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

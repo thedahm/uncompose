@@ -14,6 +14,13 @@ The plan for the first release is being worked out in the open on the
 [issue tracker](https://github.com/thedahm/uncompose/issues), with decisions recorded
 in [`docs/adr/`](docs/adr/).
 
+## Requirements
+
+Uncompose is Linux-only for v0.1 and needs **ffmpeg** on your `PATH` to read and write
+audio. Install it with your system package manager, for example `sudo apt install ffmpeg`
+on Debian/Ubuntu. If ffmpeg is missing, Uncompose stops before a run with a one-line
+install message rather than a cryptic error.
+
 ## Responsible use
 
 Uncompose processes audio you provide, entirely on your own machine — nothing is uploaded
