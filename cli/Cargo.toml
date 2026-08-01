@@ -12,3 +12,6 @@ path = "src/main.rs"
 anyhow.workspace = true
 clap = { version = "4", features = ["derive"] }
 uncompose-core = { path = "../core" }
+
+[dev-dependencies]
+tempfile = "3.27.0"
