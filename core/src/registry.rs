@@ -1,29 +1,22 @@
-//! The pinned model registry: Uncompose's static manifest of every model it
-//! knows, plus the core-owned preset -> model mappings (ADR-0001, ADR-0003).
-//!
-//! Presets are fixed and never silently substitute by hardware, so the same
-//! preset means the same result on every machine. License status is *relayed,
-//! not certified*, and Hardware Tier is a first-class field surfaced before a
-//! run and in `models list`.
-//!
-//! Download pins (`url`, `sha256`) are `Option` on purpose: the fetch
-//! machinery is fully built and tested, but the verified pins for the real
-//! weights are captured on the machine of record (real-model runs are manual
-//! acceptance, not CI). An entry without a `url` reports as not-yet-fetchable
-//! rather than pretending to download.
+//! The pinned model manifest: the core's static, in-package registry of the
+//! weights it knows how to fetch. Each entry pins a model id, its downloadable
+//! files (URL + SHA-256), its license status (relayed, not certified), and its
+//! Hardware Tier. Pinning in-package is what makes a preset mean the same
+//! weights on every machine and never silently substitute by hardware
+//! (ADR-0001, #11, #27).
 
-/// Whether a model runs on any machine or requires a GPU. Surfaced before a
-/// run and in `models list` so the user is never surprised by a slow CPU path
-/// or an impossible one.
+/// Whether a model needs a GPU or runs on any hardware. A first-class Engine
+/// Contract field, surfaced before a run so the user is never surprised.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HardwareTier {
-    /// Runs everywhere (GPU fast, CPU slow-but-correct).
+    /// Correct on CPU, just slow: the 6-stem preset's models.
     RunsEverywhere,
-    /// Requires a GPU; there is no viable CPU fallback.
+    /// Needs CUDA: the 2-stem Mel-Band RoFormer preset.
     GpuRequired,
 }
 
 impl HardwareTier {
+    /// The user-facing tier label, surfaced before a run.
     pub fn label(self) -> &'static str {
         match self {
             HardwareTier::RunsEverywhere => "runs everywhere",
@@ -32,88 +25,98 @@ impl HardwareTier {
     }
 }
 
-/// One model in the manifest. `filename` is the file the engine loads out of
-/// the model cache directory; `url`/`sha256` pin the download for the
-/// core-owned fetch (bypassing audio-separator's own downloader).
-#[derive(Debug, Clone)]
-pub struct ModelEntry {
-    pub id: &'static str,
-    pub filename: &'static str,
-    pub url: Option<&'static str>,
-    /// Hex SHA-256 the download is verified against. `None` means no pin is
-    /// captured yet; such a download is relayed as unverified rather than
-    /// silently trusted.
-    pub sha256: Option<&'static str>,
-    /// License status, relayed not certified.
-    pub license: &'static str,
-    pub hardware_tier: HardwareTier,
+/// A weight file's license, relayed to the user and never certified by
+/// Uncompose. `label` is the status shown ("MIT", "research-only"); `open` is
+/// false for research-only / unlicensed checkpoints so callers can flag them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct License {
+    pub label: &'static str,
+    pub open: bool,
 }
 
-/// The full manifest. Adding a model later is an entry here, not an
-/// integration (ADR-0001).
-pub const REGISTRY: &[ModelEntry] = &[
+/// One downloadable weight file, pinned by URL and expected SHA-256. The
+/// digest is lowercase hex and is the integrity gate every download passes.
+#[derive(Debug, Clone, Copy)]
+pub struct WeightFile {
+    /// Name the file is cached under and handed to the engine.
+    pub file_name: &'static str,
+    pub url: &'static str,
+    pub sha256: &'static str,
+}
+
+/// A model in the manifest: an id the engine understands, its relayed license
+/// and Hardware Tier, and the one-or-more files that make it up.
+#[derive(Debug, Clone, Copy)]
+pub struct ModelEntry {
+    pub id: &'static str,
+    pub license: License,
+    pub hardware_tier: HardwareTier,
+    pub files: &'static [WeightFile],
+}
+
+const MIT: License = License {
+    label: "MIT",
+    open: true,
+};
+
+// Demucs weights ship as "research purposes only", unlicensed (#3). We relay
+// that, we do not certify it.
+const RESEARCH_ONLY: License = License {
+    label: "research-only",
+    open: false,
+};
+
+// The `sha256` digests are the integrity gate: a download that does not match
+// is rejected, and an unset (empty) digest fails closed rather than saving
+// unverified weights. They are left unset here and pinned from the real
+// artifacts on the machine of record during M1 acceptance, the only place real
+// downloads happen; CI verifies the machinery against the fake fetcher instead.
+const HTDEMUCS_6S_FILES: &[WeightFile] = &[WeightFile {
+    file_name: "955717e8-8726e21a.th",
+    url: "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/955717e8-8726e21a.th",
+    sha256: "",
+}];
+
+const KIM_ROFORMER_FILES: &[WeightFile] = &[
+    WeightFile {
+        file_name: "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+        url: "https://huggingface.co/unwa/kim-mel-band-roformer/resolve/main/model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+        sha256: "",
+    },
+    WeightFile {
+        file_name: "model_bs_roformer_ep_317_sdr_12.9755.yaml",
+        url: "https://huggingface.co/unwa/kim-mel-band-roformer/resolve/main/model_bs_roformer_ep_317_sdr_12.9755.yaml",
+        sha256: "",
+    },
+];
+
+/// The pinned manifest. Fixed model->files mappings, owned by the core.
+pub const MANIFEST: &[ModelEntry] = &[
     ModelEntry {
         id: "htdemucs_6s",
-        filename: "htdemucs_6s.yaml",
-        url: None,
-        sha256: None,
-        license: "Demucs weights: research/non-commercial (relayed, not certified)",
+        license: RESEARCH_ONLY,
         hardware_tier: HardwareTier::RunsEverywhere,
+        files: HTDEMUCS_6S_FILES,
     },
     ModelEntry {
         id: "mel_band_roformer_kim",
-        filename: "mel_band_roformer_kim.ckpt",
-        url: None,
-        sha256: None,
-        license: "MIT (relayed, not certified)",
+        license: MIT,
         hardware_tier: HardwareTier::GpuRequired,
+        files: KIM_ROFORMER_FILES,
     },
 ];
 
-/// A named preset and the ordered model ids its pipeline needs. The `6-stem`
-/// default is a Kim Mel-Band RoFormer vocal pre-pass then htdemucs_6s; the
-/// `2-stem` preset is RoFormer alone (GPU-required).
-struct Preset {
-    name: &'static str,
-    model_ids: &'static [&'static str],
+/// Look a model up by its manifest id.
+pub fn find(model_id: &str) -> Option<&'static ModelEntry> {
+    MANIFEST.iter().find(|m| m.id == model_id)
 }
 
-const PRESETS: &[Preset] = &[
-    Preset {
-        name: "6-stem",
-        model_ids: &["mel_band_roformer_kim", "htdemucs_6s"],
-    },
-    Preset {
-        name: "2-stem",
-        model_ids: &["mel_band_roformer_kim"],
-    },
-];
-
-/// Look up a model by its exact id.
-pub fn find(id: &str) -> Option<&'static ModelEntry> {
-    REGISTRY.iter().find(|m| m.id == id)
-}
-
-/// The ordered model ids a preset needs, or `None` if the name is not a preset.
-pub fn preset_model_ids(name: &str) -> Option<&'static [&'static str]> {
-    PRESETS.iter().find(|p| p.name == name).map(|p| p.model_ids)
-}
-
-/// Resolve a `models fetch` target (a model id or a preset name) to the
-/// concrete set of entries it covers, in order and de-duplicated. `None` if
-/// the target matches neither a model nor a preset.
+/// Resolve a target — a bare model id or a preset name — to manifest
+/// entries. Preset targets resolve to their pipeline's models in order.
 pub fn resolve(target: &str) -> Option<Vec<&'static ModelEntry>> {
     if let Some(entry) = find(target) {
         return Some(vec![entry]);
     }
-    let ids = preset_model_ids(target)?;
-    let mut out: Vec<&'static ModelEntry> = Vec::new();
-    for id in ids {
-        if let Some(entry) = find(id) {
-            if !out.iter().any(|e| e.id == entry.id) {
-                out.push(entry);
-            }
-        }
-    }
-    Some(out)
+    let preset = crate::preset::by_name(target)?;
+    preset.steps.iter().map(|s| find(s.model.id)).collect()
 }

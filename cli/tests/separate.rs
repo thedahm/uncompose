@@ -19,13 +19,14 @@ fn uncompose(dir: &Path, input_name: &str) -> Command {
     cmd.args(["separate", input.to_str().expect("utf8 path")])
         .args(["--device", "cpu"])
         .env("UNCOMPOSE_ENGINE_PYTHON", support::fake_engine())
-        // Keep the model cache inside the test's tempdir.
-        .env("XDG_CACHE_HOME", dir.join("cache"));
+        // Keep the model cache and last-job pointer inside the test's tempdir.
+        .env("XDG_CACHE_HOME", dir.join("cache"))
+        .env("XDG_STATE_HOME", dir.join("state"));
     cmd
 }
 
 #[test]
-fn separate_prints_header_progress_and_outcome() {
+fn separate_prints_header_progress_and_hints() {
     let dir = tempfile::tempdir().expect("tempdir");
     let output = uncompose(dir.path(), "song.wav")
         .output()
@@ -37,18 +38,97 @@ fn separate_prints_header_progress_and_outcome() {
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(stdout.contains("input:"), "header, got:\n{stdout}");
-    assert!(stdout.contains("model:  htdemucs_6s"), "got:\n{stdout}");
-    assert!(stdout.contains("device: cpu"), "got:\n{stdout}");
-    assert!(
-        stdout.contains("[model_load]"),
-        "stage line, got:\n{stdout}"
-    );
-    assert!(stdout.contains("wrote vocals.wav"), "got:\n{stdout}");
-    assert!(stdout.contains("wrote keys.wav"), "got:\n{stdout}");
+
+    // Pre-run header: input / preset / model+license per step / device / output.
     let folder = dir.path().join("song.stems");
-    assert!(stdout.contains(&format!("done: 6 stems in {}", folder.display())));
+    assert!(stdout.contains("input"), "header input, got:\n{stdout}");
+    assert!(stdout.contains("song.wav"), "input path, got:\n{stdout}");
+    assert!(
+        stdout.contains("preset   6-stem"),
+        "preset line, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("(vocals, drums, bass, guitar, keys, other)"),
+        "preset stems, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("model") && stdout.contains("htdemucs_6s"),
+        "model line, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("weights: research-only"),
+        "license relay, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("device   cpu"),
+        "device line, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains(&format!("output   {}", folder.display())),
+        "output line, got:\n{stdout}"
+    );
+
+    // Per-stage lines collapse to one line with elapsed time (M:SS).
+    assert!(
+        has_collapsed_stage(&stdout, "model_load"),
+        "model_load did not collapse with an elapsed time, got:\n{stdout}"
+    );
+    assert!(
+        has_collapsed_stage(&stdout, "separate"),
+        "separate did not collapse with an elapsed time, got:\n{stdout}"
+    );
+    // Stems accrue onto a single write line.
+    assert!(
+        stdout.contains("write") && stdout.contains("vocals") && stdout.contains("keys"),
+        "write line, got:\n{stdout}"
+    );
+
+    // Always-on post-run hints.
+    assert!(
+        stdout.contains("✓ ") && stdout.contains("(6 stems)"),
+        "success line, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("play a stem:") && stdout.contains("uncompose play vocals"),
+        "play hint, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("open folder:") && stdout.contains("uncompose open"),
+        "open hint, got:\n{stdout}"
+    );
+
     assert!(folder.join("job.json").is_file());
+    // The last-job pointer records the completed job so play/open work next.
+    assert!(
+        dir.path().join("state/uncompose/last-job.json").is_file(),
+        "last-job pointer written"
+    );
+}
+
+/// A finished stage shows one line carrying the stage name and an `M:SS`
+/// elapsed time; timing is nondeterministic so we only check the shape.
+fn has_collapsed_stage(stdout: &str, stage: &str) -> bool {
+    stdout.lines().any(|line| {
+        let line = line.trim();
+        line.starts_with(stage)
+            && line
+                .rsplit(char::is_whitespace)
+                .next()
+                .map(is_mmss)
+                .unwrap_or(false)
+    })
+}
+
+fn is_mmss(token: &str) -> bool {
+    match token.split_once(':') {
+        Some((m, s)) => {
+            !m.is_empty()
+                && m.chars().all(|c| c.is_ascii_digit())
+                && s.len() == 2
+                && s.chars().all(|c| c.is_ascii_digit())
+        }
+        None => false,
+    }
 }
 
 #[test]
@@ -85,6 +165,32 @@ fn missing_input_fails_with_a_clear_message() {
 }
 
 #[test]
+fn output_flag_writes_stems_to_the_given_folder() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let dest = dir.path().join("my-stems");
+    let output = uncompose(dir.path(), "song.wav")
+        .args(["--output", dest.to_str().expect("utf8 path")])
+        .output()
+        .expect("running CLI");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(dest.join("vocals.wav").is_file());
+    assert!(dest.join("job.json").is_file());
+    assert!(
+        !dir.path().join("song.stems").exists(),
+        "-o replaced the default location"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains(&format!("✓ {}", dest.display())) && stdout.contains("(6 stems)"),
+        "success line names the override, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn sigint_mid_run_kills_the_job_without_a_job_record() {
     let dir = tempfile::tempdir().expect("tempdir");
     // A real Ctrl+C is delivered to the foreground process group, CLI and
@@ -100,7 +206,7 @@ fn sigint_mid_run_kills_the_job_without_a_job_record() {
     let stdout = child.stdout.take().expect("piped stdout");
     let mut saw_stage = false;
     for line in BufReader::new(stdout).lines() {
-        if line.expect("reading CLI stdout").contains("[separate]") {
+        if line.expect("reading CLI stdout").trim() == "separate" {
             saw_stage = true;
             break;
         }
@@ -118,4 +224,25 @@ fn sigint_mid_run_kills_the_job_without_a_job_record() {
     let folder = dir.path().join("hang.stems");
     assert!(folder.is_dir(), "job folder left as the artifact");
     assert!(!folder.join("job.json").exists(), "must not look complete");
+    // Ctrl+C leaves no half-written junk: every staged partial is removed.
+    let partials: Vec<_> = walk_partials(&folder);
+    assert!(partials.is_empty(), "partials left behind: {partials:?}");
+}
+
+/// Collect `*.partial` files anywhere under the folder (stage scratch dirs
+/// included) so the cancel test proves the whole tree is clean.
+fn walk_partials(dir: &Path) -> Vec<std::path::PathBuf> {
+    let mut found = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return found;
+    };
+    for entry in entries.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if path.is_dir() {
+            found.extend(walk_partials(&path));
+        } else if path.extension().is_some_and(|x| x == "partial") {
+            found.push(path);
+        }
+    }
+    found
 }

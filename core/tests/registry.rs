@@ -27,8 +27,12 @@ fn an_unknown_target_resolves_to_nothing() {
 
 #[test]
 fn every_model_relays_a_license_and_a_hardware_tier() {
-    for entry in registry::REGISTRY {
-        assert!(!entry.license.is_empty(), "{} has no license", entry.id);
+    for entry in registry::MANIFEST {
+        assert!(
+            !entry.license.label.is_empty(),
+            "{} has no license",
+            entry.id
+        );
         // label() is total; this just asserts the field is wired.
         let _ = entry.hardware_tier.label();
     }
