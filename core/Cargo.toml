@@ -12,6 +12,9 @@ anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"
+# Blocking HTTPS for the real weight fetcher. No gzip: model files are already
+# compressed, and verbatim bytes are what the pinned SHA-256 is taken over.
+ureq = { version = "3.3.0", default-features = false, features = ["rustls"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"

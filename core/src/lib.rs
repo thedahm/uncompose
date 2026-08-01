@@ -4,8 +4,10 @@
 
 pub mod contract;
 pub mod engine;
+pub mod fetch;
 pub mod job;
 pub mod preset;
+pub mod registry;
 pub mod state;
 
 use std::collections::HashMap;
