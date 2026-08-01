@@ -95,10 +95,11 @@ pub fn fetch(
     })?;
 
     std::fs::create_dir_all(model_dir).context("creating model cache dir")?;
-    let partial = dest.with_extension(format!(
-        "{}.partial",
-        dest.extension().and_then(|e| e.to_str()).unwrap_or("")
-    ));
+    // Append `.partial` to the full filename rather than replacing the
+    // extension, so the sibling stays unique to this model's file.
+    let mut partial = dest.clone().into_os_string();
+    partial.push(".partial");
+    let partial = PathBuf::from(partial);
 
     let mut sink = CountingHasher::new(
         std::fs::File::create(&partial).context("creating partial download file")?,

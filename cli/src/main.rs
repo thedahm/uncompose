@@ -1,9 +1,10 @@
 //! uncompose: thin clap CLI over uncompose-core's `run_job`.
 //! Walking-skeleton surface: `uncompose separate <song>` only.
 
+use std::io::Write;
 use std::path::PathBuf;
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use clap::{Parser, Subcommand};
 use uncompose_core::models::{self, CurlDownloader, FetchOutcome};
 use uncompose_core::registry;
@@ -87,7 +88,6 @@ fn models_fetch(target: &str) -> Result<()> {
     for entry in entries {
         match models::fetch(&model_dir, entry, &CurlDownloader, |bytes| {
             print!("\r  {}: {bytes} bytes", entry.id);
-            use std::io::Write;
             std::io::stdout().flush().ok();
         })? {
             FetchOutcome::AlreadyCached => println!("{}: already cached", entry.id),
@@ -105,10 +105,7 @@ fn models_fetch(target: &str) -> Result<()> {
 }
 
 fn models_remove(id: &str) -> Result<()> {
-    let entry = match registry::find(id) {
-        Some(entry) => entry,
-        None => bail!("unknown model: {id}"),
-    };
+    let entry = registry::find(id).ok_or_else(|| anyhow::anyhow!("unknown model: {id}"))?;
     let model_dir = default_model_dir();
     if models::remove(&model_dir, entry)? {
         println!("{id}: removed");
