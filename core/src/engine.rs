@@ -3,12 +3,18 @@
 
 use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Write};
+use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::{bail, Context, Result};
 
 use crate::contract::{EngineEvent, EngineRequest};
+use crate::Cancelled;
+
+/// SIGINT signal number (Linux). A Ctrl+C reaches the whole foreground
+/// process group, so an engine killed by it means the user cancelled.
+const SIGINT: i32 = 2;
 
 /// Locate the dev-managed engine interpreter (M1: `uv sync` venv).
 /// `$UNCOMPOSE_ENGINE_PYTHON` wins; otherwise walk up from the current
@@ -83,6 +89,9 @@ pub fn run_engine(
 
     let status = child.wait().context("waiting for engine")?;
     if !status.success() {
+        if status.signal() == Some(SIGINT) {
+            return Err(anyhow::Error::new(Cancelled));
+        }
         let tail = stderr_tail(log_path, 15);
         let msg = engine_error.unwrap_or_else(|| format!("engine exited with {status}"));
         bail!("{msg}\n--- engine.log tail ---\n{tail}");

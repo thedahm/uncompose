@@ -74,12 +74,18 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
 
     console.log("\nReview complete.");
 
-    // Push from the host (the sandbox has no push credentials) so a human can
-    // open and merge the PR — the loop's job ends at a pushed branch.
+    // Push and open the PR from the host (the sandbox has no push
+    // credentials). --fill-first titles the PR from the implementer's commit.
+    // Merging stays human per #26 — the loop's job ends at an open PR.
     try {
       execSync(`git push -u origin ${branch}`, { stdio: "inherit" });
+      execSync(`gh pr create --head ${branch} --base main --fill-first`, {
+        stdio: "inherit",
+      });
     } catch {
-      console.warn(`Push failed — branch ${branch} is still available locally.`);
+      console.warn(
+        `Push or PR creation failed — branch ${branch} is still available locally.`,
+      );
     }
   } finally {
     await sandbox.close();

@@ -6,6 +6,7 @@ pub mod contract;
 pub mod engine;
 pub mod job;
 pub mod preset;
+pub mod state;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -23,11 +24,32 @@ pub struct JobConfig {
     pub input: PathBuf,
     /// The preset to run; owns the pipeline of engine calls.
     pub preset: &'static Preset,
+    /// Free-form separation parameters, recorded verbatim for reproducibility.
+    pub parameters: serde_json::Value,
     /// "auto" | "cpu" | "cuda". `auto` resolves against the local machine.
     pub device: String,
     pub model_dir: PathBuf,
+    /// Where the last-job pointer is written after a successful run.
+    pub state_dir: PathBuf,
     pub engine_python: PathBuf,
+    /// Explicit output folder (`-o`); `None` means the default next to the
+    /// input. Either way the folder is collision-suffixed, never overwritten.
+    pub output: Option<PathBuf>,
 }
+
+/// The job was cancelled (Ctrl+C): the engine was killed by SIGINT. Carried
+/// as a distinct error so callers can tell a clean cancel from a real
+/// failure and print an appropriate message / exit code.
+#[derive(Debug)]
+pub struct Cancelled;
+
+impl std::fmt::Display for Cancelled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "cancelled")
+    }
+}
+
+impl std::error::Error for Cancelled {}
 
 #[derive(Debug)]
 pub struct JobOutcome {
@@ -66,7 +88,8 @@ pub fn run_job(config: &JobConfig, mut on_event: impl FnMut(JobEvent)) -> Result
     let device = resolve_device(&config.device)?;
     let preset = config.preset;
 
-    let job_folder = job::create_job_folder(&input)?;
+    let base = job::job_folder_base(&input, config.output.as_deref())?;
+    let job_folder = job::create_job_folder(&base)?;
     std::fs::create_dir_all(&config.model_dir).context("creating model dir")?;
     let log_path = job_folder.join("engine.log");
 
@@ -102,7 +125,7 @@ pub fn run_job(config: &JobConfig, mut on_event: impl FnMut(JobEvent)) -> Result
 
         let mut emitted: Vec<(String, PathBuf)> = Vec::new();
         let mut done: Option<(String, serde_json::Value)> = None;
-        engine::run_engine(
+        let engine_result = engine::run_engine(
             &config.engine_python,
             &request,
             &log_path,
@@ -126,7 +149,19 @@ pub fn run_job(config: &JobConfig, mut on_event: impl FnMut(JobEvent)) -> Result
                 } => done = Some((engine_version.clone(), timings.clone())),
                 EngineEvent::Error { .. } => {}
             },
-        )?;
+        );
+        if let Err(e) = engine_result {
+            // A clean cancel leaves no junk: the scratch dirs (and any
+            // partials inside them) are removed. A real failure keeps them
+            // as the diagnosable artifact alongside engine.log.
+            if e.is::<Cancelled>() {
+                for dir in &stage_dirs {
+                    let _ = std::fs::remove_dir_all(dir);
+                }
+                let _ = job::remove_partials(&job_folder);
+            }
+            return Err(e);
+        }
 
         let (version, step_timings) = done.with_context(|| {
             format!(
@@ -191,6 +226,7 @@ pub fn run_job(config: &JobConfig, mut on_event: impl FnMut(JobEvent)) -> Result
             .iter()
             .map(|s| s.model.id.to_string())
             .collect(),
+        parameters: config.parameters.clone(),
         device,
         engine_version: engine_version.unwrap_or_default(),
         stems: stems.clone(),
@@ -201,7 +237,16 @@ pub fn run_job(config: &JobConfig, mut on_event: impl FnMut(JobEvent)) -> Result
             .map(|d| d.as_secs())
             .unwrap_or(0),
     };
+    // job.json written last: it is the completion marker. Only once it exists
+    // do we point the last-job pointer at this now-complete folder.
     job::write_job_record(&job_folder, &record)?;
+    state::write_last_job(
+        &config.state_dir,
+        &state::LastJob {
+            job_folder: job_folder.clone(),
+            input_path: input.clone(),
+        },
+    )?;
 
     Ok(JobOutcome { job_folder, stems })
 }

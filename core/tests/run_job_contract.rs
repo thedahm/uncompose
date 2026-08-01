@@ -19,9 +19,12 @@ fn config(dir: &Path, input_name: &str, preset: &'static Preset) -> JobConfig {
     JobConfig {
         input,
         preset,
+        parameters: serde_json::json!({ "shifts": 1 }),
         device: "cpu".into(),
         model_dir: dir.join("models"),
+        state_dir: dir.join("state"),
         engine_python: support::fake_engine(),
+        output: None,
     }
 }
 
@@ -45,6 +48,11 @@ fn six_stem_composes_two_engine_calls_into_six_stems() {
             outcome.job_folder.join(format!("{stem}.wav")).is_file(),
             "{stem}.wav present"
         );
+        // Partials are promoted to final names, never left behind on success.
+        assert!(!outcome
+            .job_folder
+            .join(format!("{stem}.wav.partial"))
+            .exists());
     }
 
     // Two engine calls: the RoFormer pre-pass on the song, then htdemucs on
@@ -86,6 +94,7 @@ fn six_stem_composes_two_engine_calls_into_six_stems() {
             .map(|m| m.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>()),
         Some(vec!["mel_band_roformer_kim", "htdemucs_6s"])
     );
+    assert_eq!(record["parameters"]["shifts"], 1);
     assert_eq!(record["outcome"], "success");
     assert_eq!(record["device"], "cpu");
     assert_eq!(record["engine_version"], "fake-0.0");
@@ -154,6 +163,38 @@ fn two_stem_runs_roformer_alone() {
 }
 
 #[test]
+fn success_points_the_last_job_pointer_at_the_folder() {
+    use uncompose_core::state;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let config = config(dir.path(), "song.wav", &TWO_STEM);
+    let outcome = run(&config).0.expect("job should succeed");
+
+    let last = state::read_last_job(&config.state_dir)
+        .expect("reading pointer")
+        .expect("pointer written after a successful run");
+    assert_eq!(last.job_folder, outcome.job_folder);
+    assert_eq!(last.input_path, config.input.canonicalize().unwrap());
+}
+
+#[test]
+fn failure_leaves_the_previous_last_job_pointer_intact() {
+    use uncompose_core::state;
+    let dir = tempfile::tempdir().expect("tempdir");
+    // A successful run sets the pointer.
+    let good = config(dir.path(), "song.wav", &TWO_STEM);
+    let good_outcome = run(&good).0.expect("first run should succeed");
+    // A later failing run must not clobber it: play/open still find the good job.
+    let mut bad = config(dir.path(), "error.wav", &TWO_STEM);
+    bad.state_dir = good.state_dir.clone();
+    run(&bad).0.expect_err("second run should fail");
+
+    let last = state::read_last_job(&good.state_dir)
+        .expect("reading pointer")
+        .expect("pointer still present");
+    assert_eq!(last.job_folder, good_outcome.job_folder);
+}
+
+#[test]
 fn engine_stderr_lands_in_engine_log_not_events() {
     let dir = tempfile::tempdir().expect("tempdir");
     let (outcome, _) = run(&config(dir.path(), "song.wav", &TWO_STEM));
@@ -170,6 +211,34 @@ fn repeated_runs_suffix_the_job_folder() {
     let second = run(&config).0.expect("second run");
     assert_eq!(first.job_folder, dir.path().join("song.stems"));
     assert_eq!(second.job_folder, dir.path().join("song.stems-2"));
+    assert!(first.job_folder.join("job.json").is_file(), "never reused");
+}
+
+#[test]
+fn output_override_places_stems_at_the_given_path() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut config = config(dir.path(), "song.wav", &TWO_STEM);
+    let dest = dir.path().join("elsewhere").join("session-stems");
+    config.output = Some(dest.clone());
+
+    let outcome = run(&config).0.expect("job should succeed");
+    assert_eq!(outcome.job_folder, dest);
+    assert!(dest.join("vocals.wav").is_file());
+    assert!(dest.join("job.json").is_file());
+    assert!(!dir.path().join("song.stems").exists());
+}
+
+#[test]
+fn output_override_is_collision_suffixed_never_overwritten() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut config = config(dir.path(), "song.wav", &TWO_STEM);
+    let dest = dir.path().join("stems");
+    config.output = Some(dest.clone());
+
+    let first = run(&config).0.expect("first run");
+    let second = run(&config).0.expect("second run");
+    assert_eq!(first.job_folder, dest);
+    assert_eq!(second.job_folder, dir.path().join("stems-2"));
     assert!(first.job_folder.join("job.json").is_file(), "never reused");
 }
 
@@ -219,9 +288,12 @@ fn missing_input_fails_before_creating_a_job_folder() {
     let config = JobConfig {
         input: dir.path().join("nope.wav"),
         preset: &TWO_STEM,
+        parameters: serde_json::json!({}),
         device: "cpu".into(),
         model_dir: dir.path().join("models"),
+        state_dir: dir.path().join("state"),
         engine_python: support::fake_engine(),
+        output: None,
     };
     let err = format!("{:#}", run_job(&config, |_| ()).expect_err("should fail"));
     assert!(err.contains("input not found"), "got: {err}");
