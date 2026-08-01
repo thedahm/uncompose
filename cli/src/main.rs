@@ -11,7 +11,9 @@ use std::time::Instant;
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
+use uncompose_core::fetch::{ensure_model, FetchEvent, HttpFetcher};
 use uncompose_core::preset::{self, Preset};
+use uncompose_core::registry;
 use uncompose_core::{
     default_model_dir, engine, resolve_device, run_job, state, Cancelled, JobConfig, JobEvent,
 };
@@ -46,6 +48,27 @@ enum Command {
     },
     /// Open the last job's folder in the file manager
     Open,
+    /// Inspect and manage cached model weights
+    Models {
+        #[command(subcommand)]
+        command: ModelsCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum ModelsCommand {
+    /// List known models with license status, Hardware Tier, and cache state
+    List,
+    /// Pre-download a model or preset's weights into the cache
+    Fetch {
+        /// A model id (e.g. htdemucs_6s) or preset name (e.g. 6-stem)
+        target: String,
+    },
+    /// Remove a model's cached weights to reclaim disk space
+    Remove {
+        /// A model id
+        id: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -59,7 +82,92 @@ fn main() -> Result<()> {
         } => separate(song, preset, device, output),
         Command::Play { stem } => play(stem),
         Command::Open => open(),
+        Command::Models { command } => match command {
+            ModelsCommand::List => models_list(),
+            ModelsCommand::Fetch { target } => models_fetch(&target),
+            ModelsCommand::Remove { id } => models_remove(&id),
+        },
     }
+}
+
+fn models_list() -> Result<()> {
+    let model_dir = default_model_dir();
+    for entry in registry::MANIFEST {
+        let cached = entry
+            .files
+            .iter()
+            .all(|f| model_dir.join(f.file_name).is_file());
+        let state = if cached { "cached" } else { "not cached" };
+        println!(
+            "{}  [{}]  {}  ({})",
+            entry.id,
+            state,
+            entry.hardware_tier.label(),
+            entry.license.label,
+        );
+    }
+    Ok(())
+}
+
+fn models_fetch(target: &str) -> Result<()> {
+    let entries =
+        registry::resolve(target).ok_or_else(|| anyhow!("unknown model or preset: {target}"))?;
+    let model_dir = default_model_dir();
+    for entry in entries {
+        // The manifest digests are pinned at M1 acceptance; until then a
+        // fetch would fail closed inside ensure_model anyway — say why up
+        // front instead of after a download.
+        if entry.files.iter().any(|f| f.sha256.is_empty()) {
+            bail!(
+                "{}: no download pin yet (SHA-256 unpinned); fetch is enabled once \
+                 the manifest digests are pinned",
+                entry.id
+            );
+        }
+        ensure_model(entry, &model_dir, &HttpFetcher, |event| match event {
+            FetchEvent::License { model_id, license } => {
+                println!("{model_id}: weights are {}", license.label);
+            }
+            FetchEvent::Cached { file_name } => println!("  {file_name}: already cached"),
+            FetchEvent::DownloadStarted { file_name, .. } => {
+                println!("  {file_name}: downloading");
+            }
+            FetchEvent::DownloadProgress {
+                file_name,
+                downloaded,
+                total_bytes,
+            } => {
+                match total_bytes {
+                    Some(total) => print!("\r  {file_name}: {downloaded}/{total} bytes"),
+                    None => print!("\r  {file_name}: {downloaded} bytes"),
+                }
+                std::io::stdout().flush().ok();
+            }
+            FetchEvent::DownloadFinished { file_name } => {
+                println!("\r  {file_name}: fetched and verified");
+            }
+        })?;
+    }
+    Ok(())
+}
+
+fn models_remove(id: &str) -> Result<()> {
+    let entry = registry::find(id).ok_or_else(|| anyhow!("unknown model: {id}"))?;
+    let model_dir = default_model_dir();
+    let mut removed = false;
+    for file in entry.files {
+        let path = model_dir.join(file.file_name);
+        if path.is_file() {
+            std::fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
+            removed = true;
+        }
+    }
+    if removed {
+        println!("{id}: removed");
+    } else {
+        println!("{id}: not cached");
+    }
+    Ok(())
 }
 
 fn separate(

@@ -15,6 +15,16 @@ pub enum HardwareTier {
     GpuRequired,
 }
 
+impl HardwareTier {
+    /// The user-facing tier label, surfaced before a run.
+    pub fn label(self) -> &'static str {
+        match self {
+            HardwareTier::RunsEverywhere => "runs everywhere",
+            HardwareTier::GpuRequired => "GPU required",
+        }
+    }
+}
+
 /// A weight file's license, relayed to the user and never certified by
 /// Uncompose. `label` is the status shown ("MIT", "research-only"); `open` is
 /// false for research-only / unlicensed checkpoints so callers can flag them.
@@ -89,7 +99,7 @@ pub const MANIFEST: &[ModelEntry] = &[
         files: HTDEMUCS_6S_FILES,
     },
     ModelEntry {
-        id: "kim_mel_band_roformer",
+        id: "mel_band_roformer_kim",
         license: MIT,
         hardware_tier: HardwareTier::GpuRequired,
         files: KIM_ROFORMER_FILES,
@@ -99,4 +109,14 @@ pub const MANIFEST: &[ModelEntry] = &[
 /// Look a model up by its manifest id.
 pub fn find(model_id: &str) -> Option<&'static ModelEntry> {
     MANIFEST.iter().find(|m| m.id == model_id)
+}
+
+/// Resolve a target — a bare model id or a preset name — to manifest
+/// entries. Preset targets resolve to their pipeline's models in order.
+pub fn resolve(target: &str) -> Option<Vec<&'static ModelEntry>> {
+    if let Some(entry) = find(target) {
+        return Some(vec![entry]);
+    }
+    let preset = crate::preset::by_name(target)?;
+    preset.steps.iter().map(|s| find(s.model.id)).collect()
 }

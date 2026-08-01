@@ -283,7 +283,7 @@ fn manifest_pins_the_two_v01_models_with_relayed_license_and_tier() {
     assert!(!demucs.files.is_empty());
 
     // The 2-stem vocal model: GPU-required, MIT weights.
-    let roformer = registry::find("kim_mel_band_roformer").expect("roformer in manifest");
+    let roformer = registry::find("mel_band_roformer_kim").expect("roformer in manifest");
     assert_eq!(roformer.hardware_tier, HardwareTier::GpuRequired);
     assert_eq!(roformer.license.label, "MIT");
     assert!(roformer.license.open);
