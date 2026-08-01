@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      # Contract tests run the real core and CLI against the fake engine;
+      # no Python or ML stack involved.
+      - run: cargo test --workspace
+
+  shim:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: engine/uv.lock
+      # Contributors run a plain `uv sync` (full GPU-capable env, per
+      # CONTRIBUTING). CI skips the multi-gigabyte CUDA torch stack: the
+      # tests fake audio-separator and torch at their Python interface, so
+      # only pytest and the shim itself are needed.
+      - run: uv sync --only-dev
+      - run: uv pip install --no-deps -e .
+      - run: uv run --no-sync pytest

@@ -23,6 +23,7 @@ pub struct JobConfig {
     pub engine_python: PathBuf,
 }
 
+#[derive(Debug)]
 pub struct JobOutcome {
     pub job_folder: PathBuf,
     pub stems: Vec<String>,
