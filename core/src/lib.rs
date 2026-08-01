@@ -87,7 +87,7 @@ pub fn run_job(config: &JobConfig, mut on_event: impl FnMut(JobEvent)) -> Result
             StepInput::Song => input.clone(),
             StepInput::Intermediate(name) => {
                 intermediates.get(name).cloned().with_context(|| {
-                    format!("pipeline wants intermediate '{name}' no earlier step produced")
+                    format!("pipeline wants intermediate '{name}' that no earlier step produced")
                 })?
             }
         };
