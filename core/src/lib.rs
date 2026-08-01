@@ -5,6 +5,7 @@
 pub mod contract;
 pub mod engine;
 pub mod job;
+pub mod preset;
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -13,6 +14,8 @@ use anyhow::{Context, Result};
 
 use contract::{EngineEvent, EngineRequest};
 use job::JobRecord;
+
+pub use preset::Preset;
 
 /// What the caller wants run. The walking skeleton knows exactly one model.
 pub struct JobConfig {
@@ -32,6 +35,12 @@ pub struct JobOutcome {
 /// Progress events surfaced to the interface layer.
 #[derive(Debug)]
 pub enum JobEvent {
+    /// The job folder is resolved and created; no engine work has started
+    /// yet. Fires first so a caller can print the output path in its pre-run
+    /// header before the slow part begins.
+    Started {
+        job_folder: PathBuf,
+    },
     Stage {
         stage: String,
         percent: Option<f64>,
@@ -52,6 +61,9 @@ pub fn run_job(config: &JobConfig, mut on_event: impl FnMut(JobEvent)) -> Result
         .canonicalize()
         .with_context(|| format!("input not found: {}", config.input.display()))?;
     let job_folder = job::create_job_folder(&input)?;
+    on_event(JobEvent::Started {
+        job_folder: job_folder.clone(),
+    });
     std::fs::create_dir_all(&config.model_dir).context("creating model dir")?;
 
     let request = EngineRequest {

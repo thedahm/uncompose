@@ -41,8 +41,13 @@ fn success_produces_stems_and_job_record() {
     }
     assert!(outcome.job_folder.join("engine.log").is_file());
 
-    // Stage events stream through before stems.
-    assert!(matches!(&events[0], JobEvent::Stage { stage, .. } if stage == "model_load"));
+    // The Started event fires first, carrying the resolved job folder, then
+    // stage events stream through before stems.
+    assert!(
+        matches!(&events[0], JobEvent::Started { job_folder } if job_folder == &outcome.job_folder),
+        "first event announces the job folder"
+    );
+    assert!(matches!(&events[1], JobEvent::Stage { stage, .. } if stage == "model_load"));
     let stem_events: Vec<_> = events
         .iter()
         .filter_map(|e| match e {
