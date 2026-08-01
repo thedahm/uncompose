@@ -379,6 +379,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "libc",
  "tempfile",
  "uncompose-core",
 ]
