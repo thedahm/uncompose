@@ -5,6 +5,7 @@
 pub mod contract;
 pub mod engine;
 pub mod job;
+pub mod state;
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -17,9 +18,16 @@ use job::JobRecord;
 /// What the caller wants run. The walking skeleton knows exactly one model.
 pub struct JobConfig {
     pub input: PathBuf,
+    /// Preset name recorded in the job record (e.g. "6-stem"). The core owns
+    /// the preset-to-model mapping; here we only record what the caller chose.
+    pub preset: String,
     pub model_id: String,
+    /// Free-form separation parameters, recorded verbatim for reproducibility.
+    pub parameters: serde_json::Value,
     pub device: String,
     pub model_dir: PathBuf,
+    /// Where the last-job pointer is written after a successful run.
+    pub state_dir: PathBuf,
     pub engine_python: PathBuf,
     /// Explicit output folder (`-o`); `None` means the default next to the
     /// input. Either way the folder is collision-suffixed, never overwritten.
@@ -133,7 +141,9 @@ pub fn run_job(config: &JobConfig, mut on_event: impl FnMut(JobEvent)) -> Result
     let record = JobRecord {
         input_path: input.to_string_lossy().into_owned(),
         input_sha256: job::sha256_file(&input)?,
+        preset: config.preset.clone(),
         model_id: config.model_id.clone(),
+        parameters: config.parameters.clone(),
         device,
         engine_version,
         stems: stems.clone(),
@@ -144,7 +154,16 @@ pub fn run_job(config: &JobConfig, mut on_event: impl FnMut(JobEvent)) -> Result
             .map(|d| d.as_secs())
             .unwrap_or(0),
     };
+    // job.json written last: it is the completion marker. Only once it exists
+    // do we point the last-job pointer at this now-complete folder.
     job::write_job_record(&job_folder, &record)?;
+    state::write_last_job(
+        &config.state_dir,
+        &state::LastJob {
+            job_folder: job_folder.clone(),
+            input_path: input.clone(),
+        },
+    )?;
 
     Ok(JobOutcome { job_folder, stems })
 }

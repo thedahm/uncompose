@@ -380,6 +380,7 @@ dependencies = [
  "anyhow",
  "clap",
  "libc",
+ "serde_json",
  "tempfile",
  "uncompose-core",
 ]

@@ -5,7 +5,9 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use uncompose_core::{default_model_dir, engine, run_job, Cancelled, JobConfig, JobEvent};
+use uncompose_core::{
+    default_model_dir, engine, run_job, state, Cancelled, JobConfig, JobEvent,
+};
 
 #[derive(Parser)]
 #[command(name = "uncompose", about = "Local-first music source separation")]
@@ -48,9 +50,12 @@ fn separate(song: PathBuf, device: String, output: Option<PathBuf>) -> Result<()
 
     let config = JobConfig {
         input: song.clone(),
+        preset: "6-stem".into(),
         model_id: "htdemucs_6s".into(),
+        parameters: serde_json::json!({}),
         device,
         model_dir: default_model_dir(),
+        state_dir: state::default_state_dir(),
         engine_python: engine::discover_engine_python()?,
         output,
     };
