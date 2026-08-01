@@ -68,25 +68,36 @@ const RESEARCH_ONLY: License = License {
 
 // The `sha256` digests are the integrity gate: a download that does not match
 // is rejected, and an unset (empty) digest fails closed rather than saving
-// unverified weights. They are left unset here and pinned from the real
-// artifacts on the machine of record during M1 acceptance, the only place real
-// downloads happen; CI verifies the machinery against the fake fetcher instead.
-const HTDEMUCS_6S_FILES: &[WeightFile] = &[WeightFile {
-    file_name: "955717e8-8726e21a.th",
-    url: "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/955717e8-8726e21a.th",
-    sha256: "",
-}];
-
-const KIM_ROFORMER_FILES: &[WeightFile] = &[
+// unverified weights. Pinned from the real artifacts on the machine of record
+// at M1 acceptance (#33); CI verifies the machinery against the fake fetcher
+// instead. File names match what the engine asks audio-separator to load, so
+// a fetched cache is a warm cache. The demucs checkpoint's own name embeds the
+// first 8 hex of its sha256 (`-34c22ccb`), a built-in cross-check.
+const HTDEMUCS_6S_FILES: &[WeightFile] = &[
     WeightFile {
-        file_name: "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
-        url: "https://huggingface.co/unwa/kim-mel-band-roformer/resolve/main/model_bs_roformer_ep_317_sdr_12.9755.ckpt",
-        sha256: "",
+        file_name: "5c90dfd2-34c22ccb.th",
+        url: "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/5c90dfd2-34c22ccb.th",
+        sha256: "34c22ccb381c6f9fdbf324f04e1e2fe21aaaf293f5ded163a162697ff9a02ddd",
     },
     WeightFile {
-        file_name: "model_bs_roformer_ep_317_sdr_12.9755.yaml",
-        url: "https://huggingface.co/unwa/kim-mel-band-roformer/resolve/main/model_bs_roformer_ep_317_sdr_12.9755.yaml",
-        sha256: "",
+        file_name: "htdemucs_6s.yaml",
+        url: "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/htdemucs_6s.yaml",
+        sha256: "207405151270af8fd81c2373c25d27950916682ac91dca7884a11ce13dad6f58",
+    },
+];
+
+// Kim Jensen's Mel-Band RoFormer vocal model, the #14 A/B winner, from
+// audio-separator's own model mirror (the UVR public repo does not carry it).
+const KIM_ROFORMER_FILES: &[WeightFile] = &[
+    WeightFile {
+        file_name: "vocals_mel_band_roformer.ckpt",
+        url: "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/vocals_mel_band_roformer.ckpt",
+        sha256: "87201f4d31afb5bc79993230fc49446918425574db48c01c405e44f365c7559e",
+    },
+    WeightFile {
+        file_name: "vocals_mel_band_roformer.yaml",
+        url: "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/vocals_mel_band_roformer.yaml",
+        sha256: "b958b29c8f7195f0d86bee6759a33980db675c4ecaf2fcaa80fa125828e6cd38",
     },
 ];
 

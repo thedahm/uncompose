@@ -82,6 +82,26 @@ def test_success_calls_audio_separator_correctly(monkeypatch, tmp_path):
     assert separate["custom_output_names"]["Piano"] == "keys"
 
 
+def test_roformer_splits_vocals_and_instrumental(monkeypatch, tmp_path):
+    request = make_request(tmp_path, model_id="mel_band_roformer_kim")
+    code, events, calls = run_shim(request, monkeypatch, tmp_path)
+
+    assert code == 0
+    load, separate = calls["calls"]
+    assert load == {
+        "method": "load_model",
+        "model_filename": "vocals_mel_band_roformer.ckpt",
+    }
+    # audio-separator names this model's non-vocal stem "Other"; the contract
+    # name stays `instrumental`.
+    assert separate["custom_output_names"] == {
+        "Vocals": "vocals",
+        "Other": "instrumental",
+    }
+    stems = [e for e in events if e["event"] == "stem"]
+    assert sorted(e["name"] for e in stems) == ["instrumental", "vocals"]
+
+
 def test_unknown_model_id_raises(monkeypatch, tmp_path):
     request = make_request(tmp_path, model_id="not-a-model")
     with pytest.raises(ValueError, match="unknown model id"):

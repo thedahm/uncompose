@@ -19,6 +19,14 @@ from audio_separator.separator import Separator
 # from audio-separator's stem names to Uncompose's preset-level stem names
 # (keys.wav, not piano.wav — the model is piano-trained, the name is stable).
 MODELS = {
+    "mel_band_roformer_kim": {
+        "filename": "vocals_mel_band_roformer.ckpt",
+        # audio-separator calls this model's non-vocal stem "Other".
+        "output_names": {
+            "Vocals": "vocals",
+            "Other": "instrumental",
+        },
+    },
     "htdemucs_6s": {
         "filename": "htdemucs_6s.yaml",
         "output_names": {

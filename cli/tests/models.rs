@@ -1,6 +1,8 @@
 //! CLI-level contract for the `models` verbs: the printed surface of
-//! `list`/`fetch`/`remove`, observed end to end. No network: the real models
-//! have no download pin yet, so `fetch` reports that rather than hitting curl.
+//! `list`/`fetch`/`remove`, observed end to end. No network: with real pinned
+//! digests in the manifest, a successful `fetch` can only be exercised against
+//! the real artifacts, so its happy path is manual acceptance (#33); the
+//! download/verify machinery is covered in core against a fake fetcher.
 
 use std::path::Path;
 use std::process::Command;
@@ -33,19 +35,6 @@ fn models_list_shows_every_model_with_license_tier_and_cache_state() {
     assert!(stdout.contains("MIT"), "license, got:\n{stdout}");
     // Nothing cached in a fresh cache dir.
     assert!(stdout.contains("not cached"), "cache state, got:\n{stdout}");
-}
-
-#[test]
-fn models_fetch_of_a_pinless_model_says_so_without_touching_the_network() {
-    let dir = tempfile::tempdir().unwrap();
-    let out = uncompose(dir.path())
-        .args(["models", "fetch", "htdemucs_6s"])
-        .output()
-        .expect("running CLI");
-    let stderr = String::from_utf8_lossy(&out.stderr);
-
-    assert!(!out.status.success());
-    assert!(stderr.contains("no download pin"), "got:\n{stderr}");
 }
 
 #[test]
