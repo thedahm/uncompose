@@ -40,7 +40,9 @@ pub fn create_job_folder(input: &Path) -> Result<PathBuf> {
 pub struct JobRecord {
     pub input_path: String,
     pub input_sha256: String,
+    pub preset: String,
     pub model_id: String,
+    pub parameters: serde_json::Value,
     pub device: String,
     pub engine_version: String,
     pub stems: Vec<String>,

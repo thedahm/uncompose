@@ -14,9 +14,12 @@ fn config(dir: &Path, input_name: &str) -> JobConfig {
     std::fs::write(&input, b"not really audio").expect("writing input");
     JobConfig {
         input,
+        preset: "6-stem".into(),
         model_id: "htdemucs_6s".into(),
+        parameters: serde_json::json!({ "shifts": 1 }),
         device: "cpu".into(),
         model_dir: dir.join("models"),
+        state_dir: dir.join("state"),
         engine_python: support::fake_engine(),
     }
 }
@@ -58,6 +61,8 @@ fn success_produces_stems_and_job_record() {
     )
     .expect("job.json is JSON");
     assert_eq!(record["model_id"], "htdemucs_6s");
+    assert_eq!(record["preset"], "6-stem");
+    assert_eq!(record["parameters"]["shifts"], 1);
     assert_eq!(record["outcome"], "success");
     assert_eq!(record["device"], "cpu");
     assert_eq!(record["engine_version"], "fake-0.0");
@@ -71,6 +76,38 @@ fn success_produces_stems_and_job_record() {
         "input hash recorded"
     );
     assert_eq!(record["stems"].as_array().map(Vec::len), Some(6));
+}
+
+#[test]
+fn success_points_the_last_job_pointer_at_the_folder() {
+    use uncompose_core::state;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let config = config(dir.path(), "song.wav");
+    let outcome = run(&config).0.expect("job should succeed");
+
+    let last = state::read_last_job(&config.state_dir)
+        .expect("reading pointer")
+        .expect("pointer written after a successful run");
+    assert_eq!(last.job_folder, outcome.job_folder);
+    assert_eq!(last.input_path, config.input.canonicalize().unwrap());
+}
+
+#[test]
+fn failure_leaves_the_previous_last_job_pointer_intact() {
+    use uncompose_core::state;
+    let dir = tempfile::tempdir().expect("tempdir");
+    // A successful run sets the pointer.
+    let good = config(dir.path(), "song.wav");
+    let good_outcome = run(&good).0.expect("first run should succeed");
+    // A later failing run must not clobber it: play/open still find the good job.
+    let mut bad = config(dir.path(), "error.wav");
+    bad.state_dir = good.state_dir.clone();
+    run(&bad).0.expect_err("second run should fail");
+
+    let last = state::read_last_job(&good.state_dir)
+        .expect("reading pointer")
+        .expect("pointer still present");
+    assert_eq!(last.job_folder, good_outcome.job_folder);
 }
 
 #[test]
@@ -138,9 +175,12 @@ fn missing_input_fails_before_creating_a_job_folder() {
     let dir = tempfile::tempdir().expect("tempdir");
     let config = JobConfig {
         input: dir.path().join("nope.wav"),
+        preset: "6-stem".into(),
         model_id: "htdemucs_6s".into(),
+        parameters: serde_json::json!({}),
         device: "cpu".into(),
         model_dir: dir.path().join("models"),
+        state_dir: dir.path().join("state"),
         engine_python: support::fake_engine(),
     };
     let err = format!("{:#}", run_job(&config, |_| ()).expect_err("should fail"));
