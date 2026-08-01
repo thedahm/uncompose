@@ -57,6 +57,8 @@ def test_success_emits_stages_stems_and_done(monkeypatch, tmp_path):
         ["vocals", "drums", "bass", "guitar", "keys", "other"]
     )
     for e in stems:
+        # Stems are staged as `<stem>.wav.partial`; the core promotes them.
+        assert e["path"].endswith(".wav.partial")
         assert os.path.exists(e["path"])
 
     done = events[-1]

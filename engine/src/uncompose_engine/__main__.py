@@ -75,12 +75,16 @@ def run(request: dict, emit) -> int:
     separate_secs = time.monotonic() - t1
 
     # audio-separator can swallow decode failures and return with nothing
-    # written; missing stems are a failed job, not a quiet success.
+    # written; missing stems are a failed job, not a quiet success. Each stem
+    # is staged as `<stem>.wav.partial`; the core promotes it to its final
+    # name when it sees the stem event, so a crash leaves partials behind.
     missing = []
     for stem_name in model["output_names"].values():
-        path = os.path.join(request["output_dir"], f"{stem_name}.wav")
-        if os.path.exists(path):
-            emit({"event": "stem", "name": stem_name, "path": path})
+        final = os.path.join(request["output_dir"], f"{stem_name}.wav")
+        if os.path.exists(final):
+            partial = final + ".partial"
+            os.replace(final, partial)
+            emit({"event": "stem", "name": stem_name, "path": partial})
         else:
             missing.append(stem_name)
     if missing:
