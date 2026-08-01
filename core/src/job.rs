@@ -87,12 +87,16 @@ pub fn remove_partials(job_folder: &Path) -> Result<()> {
 pub struct JobRecord {
     pub input_path: String,
     pub input_sha256: String,
+    /// The preset run (e.g. `6-stem`).
     pub preset: String,
-    pub model_id: String,
+    /// The model ids in pipeline order (one per engine call).
+    pub models: Vec<String>,
+    /// Free-form separation parameters, recorded verbatim for reproducibility.
     pub parameters: serde_json::Value,
     pub device: String,
     pub engine_version: String,
     pub stems: Vec<String>,
+    /// Per-step timings, keyed by model id.
     pub timings: serde_json::Value,
     pub outcome: String,
     pub finished_at_unix: u64,

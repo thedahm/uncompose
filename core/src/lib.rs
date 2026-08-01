@@ -5,25 +5,28 @@
 pub mod contract;
 pub mod engine;
 pub mod job;
+pub mod preset;
 pub mod state;
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 
 use contract::{EngineEvent, EngineRequest};
 use job::JobRecord;
+use preset::{Preset, Route, StepInput};
 
-/// What the caller wants run. The walking skeleton knows exactly one model.
+/// What the caller wants run: an input, a preset, and where the engine and
+/// its weights live.
 pub struct JobConfig {
     pub input: PathBuf,
-    /// Preset name recorded in the job record (e.g. "6-stem"). The core owns
-    /// the preset-to-model mapping; here we only record what the caller chose.
-    pub preset: String,
-    pub model_id: String,
+    /// The preset to run; owns the pipeline of engine calls.
+    pub preset: &'static Preset,
     /// Free-form separation parameters, recorded verbatim for reproducibility.
     pub parameters: serde_json::Value,
+    /// "auto" | "cpu" | "cuda". `auto` resolves against the local machine.
     pub device: String,
     pub model_dir: PathBuf,
     /// Where the last-job pointer is written after a successful run.
@@ -67,35 +70,65 @@ pub enum JobEvent {
     },
 }
 
-/// Run one separation job in the foreground: create the Job Folder, spawn
-/// the engine, stream events, and write `job.json` last as the completion
-/// marker. On failure the folder is left as the diagnosable artifact
-/// (engine.log, any partial output, no job.json).
+/// Run one separation job in the foreground: create the Job Folder, run the
+/// preset's pipeline (one engine call per step, composed by the core),
+/// stream events, and write `job.json` last as the completion marker.
+///
+/// Each step runs in a hidden `.stage-N/` scratch dir inside the job folder;
+/// intermediates (e.g. the 6-stem instrumental) live there while the
+/// pipeline runs. On full success the final stems are moved into the job
+/// folder and the scratch dirs — intermediates and discards with them — are
+/// removed. On failure the folder is left as the diagnosable artifact
+/// (engine.log, partials in the scratch dirs, no job.json).
 pub fn run_job(config: &JobConfig, mut on_event: impl FnMut(JobEvent)) -> Result<JobOutcome> {
     let input = config
         .input
         .canonicalize()
         .with_context(|| format!("input not found: {}", config.input.display()))?;
+    let device = resolve_device(&config.device)?;
+    let preset = config.preset;
+
     let base = job::job_folder_base(&input, config.output.as_deref())?;
     let job_folder = job::create_job_folder(&base)?;
     std::fs::create_dir_all(&config.model_dir).context("creating model dir")?;
+    let log_path = job_folder.join("engine.log");
 
-    let request = EngineRequest {
-        audio_path: input.to_string_lossy().into_owned(),
-        model_id: config.model_id.clone(),
-        output_dir: job_folder.to_string_lossy().into_owned(),
-        model_dir: config.model_dir.to_string_lossy().into_owned(),
-        device: config.device.clone(),
-    };
+    // Named intermediates a step produced, for a later step's input.
+    let mut intermediates: HashMap<&'static str, PathBuf> = HashMap::new();
+    // (final stem name, its current path in a scratch dir) to move on success.
+    let mut to_finalize: Vec<(&'static str, PathBuf)> = Vec::new();
+    let mut stage_dirs: Vec<PathBuf> = Vec::new();
+    let mut engine_version: Option<String> = None;
+    let mut timings = serde_json::Map::new();
 
-    let mut stems: Vec<String> = Vec::new();
-    let mut done: Option<(String, String, serde_json::Value)> = None;
-    let mut promote_error: Option<anyhow::Error> = None;
-    let engine_result =
-        engine::run_engine(
+    for (i, step) in preset.steps.iter().enumerate() {
+        let stage_dir = job_folder.join(format!(".stage-{}", i + 1));
+        std::fs::create_dir_all(&stage_dir).context("creating stage dir")?;
+        stage_dirs.push(stage_dir.clone());
+
+        let step_input = match step.input {
+            StepInput::Song => input.clone(),
+            StepInput::Intermediate(name) => {
+                intermediates.get(name).cloned().with_context(|| {
+                    format!("pipeline wants intermediate '{name}' that no earlier step produced")
+                })?
+            }
+        };
+
+        let request = EngineRequest {
+            audio_path: step_input.to_string_lossy().into_owned(),
+            model_id: step.model.id.to_string(),
+            output_dir: stage_dir.to_string_lossy().into_owned(),
+            model_dir: config.model_dir.to_string_lossy().into_owned(),
+            device: device.clone(),
+        };
+
+        let mut emitted: Vec<(String, PathBuf)> = Vec::new();
+        let mut done: Option<(String, serde_json::Value)> = None;
+        let engine_result = engine::run_engine(
             &config.engine_python,
             &request,
-            &job_folder,
+            &log_path,
             |event| match event {
                 EngineEvent::Stage {
                     stage,
@@ -106,48 +139,98 @@ pub fn run_job(config: &JobConfig, mut on_event: impl FnMut(JobEvent)) -> Result
                     percent: *percent,
                     message: message.clone(),
                 }),
-                EngineEvent::Stem { name, .. } => {
-                    // A stem takes its final name only once the core sees it
-                    // announced; before that it is `<stem>.wav.partial`.
-                    if let Err(e) = job::promote_stem(&job_folder, name) {
-                        promote_error.get_or_insert(e);
-                    }
-                    stems.push(name.clone());
-                    on_event(JobEvent::Stem { name: name.clone() });
+                EngineEvent::Stem { name, path } => {
+                    emitted.push((name.clone(), PathBuf::from(path)))
                 }
                 EngineEvent::Done {
                     engine_version,
-                    device,
                     timings,
                     ..
-                } => done = Some((engine_version.clone(), device.clone(), timings.clone())),
+                } => done = Some((engine_version.clone(), timings.clone())),
                 EngineEvent::Error { .. } => {}
             },
         );
-
-    if let Err(e) = engine_result {
-        // A cancel leaves no junk; a real failure keeps partials + the
-        // engine log as the diagnosable artifact.
-        if e.is::<Cancelled>() {
-            let _ = job::remove_partials(&job_folder);
+        if let Err(e) = engine_result {
+            // A clean cancel leaves no junk: the scratch dirs (and any
+            // partials inside them) are removed. A real failure keeps them
+            // as the diagnosable artifact alongside engine.log.
+            if e.is::<Cancelled>() {
+                for dir in &stage_dirs {
+                    let _ = std::fs::remove_dir_all(dir);
+                }
+                let _ = job::remove_partials(&job_folder);
+            }
+            return Err(e);
         }
-        return Err(e);
-    }
-    if let Some(e) = promote_error {
-        return Err(e);
+
+        let (version, step_timings) = done.with_context(|| {
+            format!(
+                "engine step {} exited 0 without a done event",
+                step.model.id
+            )
+        })?;
+        engine_version = Some(version);
+        timings.insert(step.model.id.to_string(), step_timings);
+
+        // Route each emitted stem per the step's static plan.
+        for (engine_name, path) in emitted {
+            let output = step
+                .outputs
+                .iter()
+                .find(|o| o.engine_name == engine_name.as_str())
+                .with_context(|| {
+                    format!(
+                        "engine emitted unplanned stem '{engine_name}' for model {}",
+                        step.model.id
+                    )
+                })?;
+            match output.route {
+                Route::Stem(final_name) => {
+                    to_finalize.push((final_name, path));
+                    on_event(JobEvent::Stem {
+                        name: final_name.to_string(),
+                    });
+                }
+                Route::Intermediate(name) => {
+                    intermediates.insert(name, path);
+                }
+                Route::Discard => {}
+            }
+        }
     }
 
-    let (engine_version, device, timings) = done.context("engine exited 0 without a done event")?;
+    // Every step succeeded: promote the final stems into the job folder,
+    // confirm the preset delivered on its promise, then clear the scratch.
+    for (final_name, path) in &to_finalize {
+        let dest = job_folder.join(format!("{final_name}.wav"));
+        std::fs::rename(path, &dest).with_context(|| format!("finalizing stem {final_name}"))?;
+    }
+    for stem in preset.stems {
+        if !job_folder.join(format!("{stem}.wav")).is_file() {
+            bail!("pipeline did not produce promised stem '{stem}'");
+        }
+    }
+    for dir in &stage_dirs {
+        // Intermediates and discards are deleted on success; ignore a
+        // missing dir (a step may not have created one).
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    let stems: Vec<String> = preset.stems.iter().map(|s| s.to_string()).collect();
     let record = JobRecord {
         input_path: input.to_string_lossy().into_owned(),
         input_sha256: job::sha256_file(&input)?,
-        preset: config.preset.clone(),
-        model_id: config.model_id.clone(),
+        preset: preset.name.to_string(),
+        models: preset
+            .steps
+            .iter()
+            .map(|s| s.model.id.to_string())
+            .collect(),
         parameters: config.parameters.clone(),
         device,
-        engine_version,
+        engine_version: engine_version.unwrap_or_default(),
         stems: stems.clone(),
-        timings,
+        timings: serde_json::Value::Object(timings),
         outcome: "success".into(),
         finished_at_unix: SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -166,6 +249,25 @@ pub fn run_job(config: &JobConfig, mut on_event: impl FnMut(JobEvent)) -> Result
     )?;
 
     Ok(JobOutcome { job_folder, stems })
+}
+
+/// Resolve the requested device to a concrete `cpu`/`cuda` the engine runs.
+/// Device selection is core-owned; a preset never silently substitutes a
+/// model, so `auto` only chooses where to run, never what.
+pub fn resolve_device(requested: &str) -> Result<String> {
+    match requested {
+        "cpu" => Ok("cpu".into()),
+        "cuda" => Ok("cuda".into()),
+        "auto" => Ok(if cuda_available() { "cuda" } else { "cpu" }.into()),
+        other => bail!("unknown device '{other}': expected auto, cpu, or cuda"),
+    }
+}
+
+/// Best-effort CUDA detection that never loads torch: sniff for the NVIDIA
+/// driver the way a non-Python core can. A false negative just means a CPU
+/// fallback the user can override with `--device cuda`.
+fn cuda_available() -> bool {
+    Path::new("/proc/driver/nvidia/version").exists() || Path::new("/dev/nvidia0").exists()
 }
 
 /// Default model weights directory: `~/.cache/uncompose/models` (XDG).

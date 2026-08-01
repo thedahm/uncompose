@@ -1,12 +1,13 @@
 //! uncompose: thin clap CLI over uncompose-core's `run_job`.
-//! Walking-skeleton surface: `uncompose separate <song>` only.
+//! M1 surface: `uncompose separate <song> [--preset] [--device]`.
 
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use uncompose_core::{
-    default_model_dir, engine, run_job, state, Cancelled, JobConfig, JobEvent,
+    default_model_dir, engine, preset, resolve_device, run_job, state, Cancelled, JobConfig,
+    JobEvent,
 };
 
 #[derive(Parser)]
@@ -22,6 +23,9 @@ enum Command {
     Separate {
         /// Input audio file (WAV/MP3)
         song: PathBuf,
+        /// Preset: 6-stem (default) | 2-stem
+        #[arg(long, default_value = "6-stem")]
+        preset: String,
         /// Device: auto | cpu | cuda
         #[arg(long, default_value = "auto")]
         device: String,
@@ -36,24 +40,35 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Separate {
             song,
+            preset,
             device,
             output,
-        } => separate(song, device, output),
+        } => separate(song, preset, device, output),
     }
 }
 
-fn separate(song: PathBuf, device: String, output: Option<PathBuf>) -> Result<()> {
+fn separate(
+    song: PathBuf,
+    preset_name: String,
+    device: String,
+    output: Option<PathBuf>,
+) -> Result<()> {
     // Survive our own Ctrl+C so we can clean up before exiting. The engine
     // shares our process group and dies on the same SIGINT; the core then
     // sees it was cancelled and removes any partial stems.
     install_sigint_handler();
 
+    let preset = preset::by_name(&preset_name)
+        .ok_or_else(|| anyhow!("unknown preset '{preset_name}': try 6-stem or 2-stem"))?;
+    // Resolve the device up front so the pre-run header shows where the run
+    // will actually happen, not the literal `auto`.
+    let device = resolve_device(&device)?;
+
     let config = JobConfig {
         input: song.clone(),
-        preset: "6-stem".into(),
-        model_id: "htdemucs_6s".into(),
+        preset,
         parameters: serde_json::json!({}),
-        device,
+        device: device.clone(),
         model_dir: default_model_dir(),
         state_dir: state::default_state_dir(),
         engine_python: engine::discover_engine_python()?,
@@ -61,8 +76,8 @@ fn separate(song: PathBuf, device: String, output: Option<PathBuf>) -> Result<()
     };
 
     println!("input:  {}", song.display());
-    println!("model:  {}", config.model_id);
-    println!("device: {}", config.device);
+    println!("preset: {} ({})", preset.name, preset.hardware_tier.label());
+    println!("device: {device}");
 
     let outcome = run_job(&config, |event| match event {
         JobEvent::Stage { stage, message, .. } => match message {

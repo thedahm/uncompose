@@ -39,7 +39,10 @@ fn separate_prints_header_progress_and_outcome() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(stdout.contains("input:"), "header, got:\n{stdout}");
-    assert!(stdout.contains("model:  htdemucs_6s"), "got:\n{stdout}");
+    assert!(
+        stdout.contains("preset: 6-stem (runs everywhere)"),
+        "got:\n{stdout}"
+    );
     assert!(stdout.contains("device: cpu"), "got:\n{stdout}");
     assert!(
         stdout.contains("[model_load]"),
