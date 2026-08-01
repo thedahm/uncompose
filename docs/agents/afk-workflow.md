@@ -12,9 +12,10 @@ Wayfinder remains the planning flow; Sandcastle only executes fully specified ti
 - **Tracker**: GitHub Issues, filtered to the `ready-for-agent` label
   (`docs/agents/triage-labels.md`).
 - **Template**: sequential-reviewer — one issue per cycle, implement then review, landing
-  on a named `sandcastle/sequential-reviewer/*` branch. The agent does not close issues
-  or merge; it hands the issue back as `ready-for-human` and a human merges the branch.
-  This keeps PRs human-merged.
+  on a named `sandcastle/sequential-reviewer/*` branch that the host pushes to origin.
+  The agent does not open PRs, merge, or close issues; it hands the issue back as
+  `ready-for-human`, and a human PRs the pushed branch and merges. Blocked issues are
+  dequeued to `needs-info` rather than stalling the run.
 
 The root `package.json` exists only to host this workflow's dependencies; the shipped
 product is the Cargo workspace plus `engine/`.

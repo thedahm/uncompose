@@ -1,32 +1,15 @@
 // Sequential Reviewer — implement-then-review loop
 //
-// This template drives a two-phase workflow per issue:
-//   Phase 1 (Implement): A sonnet agent picks an open issue, works on it
-//                        on a dedicated branch, commits the changes, and signals
-//                        completion.
-//   Phase 2 (Review):    A second sonnet agent reviews the branch diff and either
-//                        approves it or makes corrections directly on the branch.
+// Each cycle: an implementer agent picks one `ready-for-agent` issue and
+// commits a fix on a dedicated branch, then a reviewer agent refines the same
+// branch inside the same sandbox. The branch is pushed for a human to merge
+// (see docs/agents/afk-workflow.md); the loop never merges or closes issues.
 //
-// Both phases share a single sandbox created via createSandbox(), so the
-// implementer and reviewer work on the same explicit branch.
-//
-// The outer loop repeats up to MAX_ITERATIONS times, processing one issue per
-// iteration and stopping early once the backlog is exhausted (an implement
-// phase that produces no commits). This is a middle-complexity option between
-// the simple-loop (no review gate) and the parallel-planner (concurrent
-// execution with a planning phase).
-//
-// Usage:
-//   npx tsx .sandcastle/main.mts
-// Or add to package.json:
-//   "scripts": { "sandcastle": "npx tsx .sandcastle/main.mts" }
+// Usage: npm run sandcastle
 
+import { execSync } from "node:child_process";
 import * as sandcastle from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
-
-// ---------------------------------------------------------------------------
-// Configuration
-// ---------------------------------------------------------------------------
 
 // Maximum number of implement→review cycles to run before stopping.
 // Each cycle works on one issue. Raise this to process more issues per run.
@@ -40,18 +23,13 @@ const hooks = {
   sandbox: { onSandboxReady: [{ command: "cargo fetch" }] },
 };
 
-// ---------------------------------------------------------------------------
-// Main loop
-// ---------------------------------------------------------------------------
-
 for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   console.log(`\n=== Iteration ${iteration}/${MAX_ITERATIONS} ===\n`);
 
-  // Generate a unique branch name for this iteration.
   const branch = `sandcastle/sequential-reviewer/${Date.now()}`;
 
-  // Create a single sandbox that both the implementer and reviewer share.
-  // This gives both agents a real, named branch that persists across phases.
+  // One sandbox shared by both phases, so the implementer and reviewer work
+  // on the same real, named branch.
   const sandbox = await sandcastle.createSandbox({
     branch,
     sandbox: docker(),
@@ -59,17 +37,9 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   });
 
   try {
-    // -----------------------------------------------------------------------
-    // Phase 1: Implement
-    //
-    // A sonnet agent picks the next open issue, writes the
-    // implementation (using RGR: Red → Green → Repeat → Refactor), and
-    // commits the result.
-    //
-    // The agent signals completion via <promise>COMPLETE</promise> when done.
-    // -----------------------------------------------------------------------
-    // One iteration so each outer pass implements a single issue on its own
-    // branch, then hands it to the reviewer. A higher value lets the agent
+    // Phase 1: Implement.
+    // One inner iteration so each outer pass implements a single issue on its
+    // own branch, then hands it to the reviewer. A higher value lets the agent
     // drain the whole backlog onto this one branch in a single pass, which
     // defeats the per-issue review.
     const implement = await sandbox.run({
@@ -80,8 +50,9 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     });
 
     if (!implement.commits.length) {
-      // No commits means the backlog is empty or every remaining issue is
-      // blocked — there is nothing left to implement or review, so stop.
+      // The backlog is empty, or the head issue was blocked and dequeued
+      // (the prompt has the agent swap its label to needs-info without
+      // committing). Rerun to continue past a dequeued issue.
       console.log("Implementation agent made no commits. Stopping.");
       break;
     }
@@ -89,13 +60,8 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     console.log(`\nImplementation complete on branch: ${branch}`);
     console.log(`Commits: ${implement.commits.length}`);
 
-    // -----------------------------------------------------------------------
-    // Phase 2: Review
-    //
-    // A second sonnet agent reviews the diff of the branch produced by
-    // Phase 1. It uses the {{BRANCH}} prompt argument to inspect the right
-    // branch, and either approves or makes corrections directly on the branch.
-    // -----------------------------------------------------------------------
+    // Phase 2: Review the branch produced by Phase 1, refining or correcting
+    // it directly on the branch.
     await sandbox.run({
       name: "reviewer",
       maxIterations: 1,
@@ -107,6 +73,14 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     });
 
     console.log("\nReview complete.");
+
+    // Push from the host (the sandbox has no push credentials) so a human can
+    // open and merge the PR — the loop's job ends at a pushed branch.
+    try {
+      execSync(`git push -u origin ${branch}`, { stdio: "inherit" });
+    } catch {
+      console.warn(`Push failed — branch ${branch} is still available locally.`);
+    }
   } finally {
     await sandbox.close();
   }

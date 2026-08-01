@@ -40,7 +40,7 @@ Review the code changes on branch `{{BRANCH}}` and improve code clarity, consist
 
 5. **Apply project standards**: Follow the coding standards defined in @.sandcastle/CODING_STANDARDS.md
 
-6. **Preserve functionality**: Never change what the code does - only how it does it. All original features, outputs, and behaviors must remain intact.
+6. **Preserve intended behaviour**: Do not redesign or add features beyond what the issue asked for. But if step 3 shows the implementation does not match the issue's intent, misses edge cases, or has a real defect, fix that directly on the branch — correctness fixes are in scope, cosmetic behaviour drift is not.
 
 # EXECUTION
 
