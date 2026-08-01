@@ -26,6 +26,48 @@ fn an_unknown_target_resolves_to_nothing() {
 }
 
 #[test]
+fn every_weight_file_pins_a_real_sha256() {
+    for entry in registry::MANIFEST {
+        for file in entry.files {
+            assert_eq!(
+                file.sha256.len(),
+                64,
+                "{}: {} has no pinned digest",
+                entry.id,
+                file.file_name
+            );
+            assert!(
+                file.sha256.chars().all(|c| c.is_ascii_hexdigit()),
+                "{}: {} digest is not hex",
+                entry.id,
+                file.file_name
+            );
+        }
+    }
+}
+
+#[test]
+fn manifest_files_are_the_ones_the_engine_loads() {
+    // The engine asks audio-separator for these exact filenames; the manifest
+    // must cache weights under the same names or the engine re-downloads.
+    let htdemucs = registry::find("htdemucs_6s").expect("known model");
+    let names: Vec<&str> = htdemucs.files.iter().map(|f| f.file_name).collect();
+    assert!(names.contains(&"htdemucs_6s.yaml"), "got {names:?}");
+    assert!(names.contains(&"5c90dfd2-34c22ccb.th"), "got {names:?}");
+
+    let roformer = registry::find("mel_band_roformer_kim").expect("known model");
+    let names: Vec<&str> = roformer.files.iter().map(|f| f.file_name).collect();
+    assert!(
+        names.contains(&"vocals_mel_band_roformer.ckpt"),
+        "got {names:?}"
+    );
+    assert!(
+        names.contains(&"vocals_mel_band_roformer.yaml"),
+        "got {names:?}"
+    );
+}
+
+#[test]
 fn every_model_relays_a_license_and_a_hardware_tier() {
     for entry in registry::MANIFEST {
         assert!(
