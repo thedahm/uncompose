@@ -62,6 +62,9 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist
+          # A rerun after a partial publish must upload only what is
+          # missing, not die on the files that already made it.
+          skip-existing: true
 
   publish-engine:
     needs: [build-cli, build-engine]
@@ -77,3 +80,6 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist
+          # A rerun after a partial publish must upload only what is
+          # missing, not die on the files that already made it.
+          skip-existing: true

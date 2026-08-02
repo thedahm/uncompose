@@ -31,3 +31,7 @@ Issues = "https://github.com/thedahm/uncompose/issues"
 bindings = "bin"
 manifest-path = "cli/Cargo.toml"
 strip = true
+# PyPI verifies the declared License-File exists inside the sdist; maturin
+# does not copy the workspace-root LICENSE on its own (v0.1.0's sdist was
+# rejected for exactly this).
+include = [{ path = "LICENSE", format = "sdist" }]
