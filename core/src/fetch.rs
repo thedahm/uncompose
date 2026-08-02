@@ -56,6 +56,30 @@ pub trait Fetcher {
 /// `cache_dir`, downloading the missing ones. Returns the local file paths in
 /// manifest order — the paths the engine is handed. Emits the license relay
 /// once, then a per-file cache/download/progress trace.
+/// Make every listed model's weights present in `cache_dir`, fetching the
+/// missing ones — the auto-fetch `separate` runs before a job (story 8). A
+/// model whose files all exist is trusted by presence alone: re-hashing
+/// multi-GB weights on every run costs seconds for corruption that
+/// `models fetch` can always re-verify explicitly. Missing models take the
+/// full [`ensure_model`] fetch-and-verify path, license relay included.
+pub fn ensure_weights(
+    entries: &[&ModelEntry],
+    cache_dir: &Path,
+    fetcher: &dyn Fetcher,
+    mut on_event: impl FnMut(FetchEvent),
+) -> Result<()> {
+    for entry in entries {
+        let warm = entry
+            .files
+            .iter()
+            .all(|f| cache_dir.join(f.file_name).is_file());
+        if !warm {
+            ensure_model(entry, cache_dir, fetcher, &mut on_event)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn ensure_model(
     entry: &ModelEntry,
     cache_dir: &Path,
