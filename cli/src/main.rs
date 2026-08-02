@@ -147,14 +147,16 @@ fn print_fetch_event(event: FetchEvent) {
             downloaded,
             total_bytes,
         } => {
+            // \x1b[K erases the rest of the line: the finished line is
+            // shorter than the byte counter it overwrites.
             match total_bytes {
-                Some(total) => print!("\r  {file_name}: {downloaded}/{total} bytes"),
-                None => print!("\r  {file_name}: {downloaded} bytes"),
+                Some(total) => print!("\r  {file_name}: {downloaded}/{total} bytes\x1b[K"),
+                None => print!("\r  {file_name}: {downloaded} bytes\x1b[K"),
             }
             std::io::stdout().flush().ok();
         }
         FetchEvent::DownloadFinished { file_name } => {
-            println!("\r  {file_name}: fetched and verified");
+            println!("\r  {file_name}: fetched and verified\x1b[K");
         }
     }
 }

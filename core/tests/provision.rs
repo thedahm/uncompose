@@ -124,3 +124,21 @@ fn a_failing_uv_surfaces_an_error_and_leaves_no_complete_env() {
         "retry ran a full build"
     );
 }
+
+#[test]
+fn provisioning_requires_uv_managed_python() {
+    // A system interpreter may lack the dev headers that source-only
+    // dependencies (diffq on 3.12) compile against; uv-managed CPython
+    // ships its own. Every uv call must therefore pin UV_MANAGED_PYTHON.
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let uv = write_fake_uv(tmp.path());
+    let env_dir = tmp.path().join("engine-env");
+
+    ensure_engine_env(&uv, &env_dir, "0.1.0", |_| {}).expect("provisioning succeeds");
+
+    let env_log = std::fs::read_to_string(tmp.path().join("uv-env.log")).expect("env log");
+    assert!(
+        env_log.lines().all(|l| l == "UV_MANAGED_PYTHON=1"),
+        "every uv call runs with UV_MANAGED_PYTHON=1: {env_log}"
+    );
+}
