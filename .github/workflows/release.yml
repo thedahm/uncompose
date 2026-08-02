@@ -43,7 +43,12 @@ jobs:
           name: dist-engine
           path: dist
 
-  publish:
+  # Two publish jobs, one per package: PyPI allows only one *pending*
+  # trusted publisher per (repo, workflow, environment) config, so each
+  # package needs its own environment name. Both jobs still need both
+  # builds — neither package may publish unless the pair exists, or
+  # provisioning strands on a 404 (ADR-0004).
+  publish-cli:
     needs: [build-cli, build-engine]
     runs-on: ubuntu-latest
     environment: pypi
@@ -52,7 +57,22 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          merge-multiple: true
+          name: dist-cli
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+
+  publish-engine:
+    needs: [build-cli, build-engine]
+    runs-on: ubuntu-latest
+    environment: pypi-engine
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-engine
           path: dist
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
