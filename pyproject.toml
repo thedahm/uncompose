@@ -1,0 +1,33 @@
+# The `uncompose` wheel: the Rust CLI shipped through PyPI so `uvx uncompose`
+# works (ADR-0003's ruff/uv precedent). maturin packages the `cli` crate's
+# binary; no Python code rides in this wheel — the Python engine is a separate
+# package (`uncompose-engine`) the core provisions at runtime.
+
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "uncompose"
+version = "0.1.0"
+description = "Local-first music source separation: a song in, a folder of stems out"
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Dominic Hanzely" }]
+keywords = ["music", "source-separation", "stems", "audio", "demucs"]
+classifiers = [
+    # v0.1's platform claim: Linux only (CUDA primary, CPU fallback).
+    "Operating System :: POSIX :: Linux",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Multimedia :: Sound/Audio",
+]
+
+[project.urls]
+Repository = "https://github.com/thedahm/uncompose"
+Issues = "https://github.com/thedahm/uncompose/issues"
+
+[tool.maturin]
+bindings = "bin"
+manifest-path = "cli/Cargo.toml"
+strip = true

@@ -199,7 +199,7 @@ fn separate(
         device: device.clone(),
         model_dir: default_model_dir(),
         state_dir: state::default_state_dir(),
-        engine_python: engine::discover_engine_python()?,
+        engine_python: engine::resolve_engine_python(print_provision_event)?,
         output,
     };
 
@@ -295,6 +295,27 @@ fn open() -> Result<()> {
             bail!("xdg-open not found: install xdg-utils to use `uncompose open`")
         }
         Err(e) => Err(e).context("spawning xdg-open"),
+    }
+}
+
+/// Announce the one-time Engine Environment build before it starts: the
+/// multi-GB download must never look like a hang, and the CPU-only escape
+/// hatch has to be visible before the CUDA torch download begins. uv's own
+/// progress output follows on stderr.
+fn print_provision_event(event: uncompose_core::provision::ProvisionEvent) {
+    use uncompose_core::provision::ProvisionEvent;
+    match event {
+        ProvisionEvent::Started { env_dir } => {
+            println!(
+                "first run: building the engine environment in {}",
+                env_dir.display()
+            );
+            println!(
+                "  one-time download of the ML stack, several GB (CUDA torch by default; \
+                 rerun with UV_TORCH_BACKEND=cpu for a CPU-only machine)"
+            );
+        }
+        ProvisionEvent::Step { description } => println!("  {description}"),
     }
 }
 

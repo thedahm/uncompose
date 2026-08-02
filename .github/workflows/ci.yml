@@ -20,6 +20,19 @@ jobs:
       # no Python or ML stack involved.
       - run: cargo test --workspace
 
+  # Prove the PyPI path per-PR: build the maturin wheel and run it the way a
+  # stranger will (`uvx uncompose`), so packaging breakage never waits for a
+  # release to surface.
+  wheel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v6
+      - run: uvx maturin build --release
+      - run: uvx --from target/wheels/uncompose-*.whl uncompose --help
+
   shim:
     runs-on: ubuntu-latest
     defaults:

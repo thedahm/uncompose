@@ -12,8 +12,10 @@
 
 ## Testing
 
-- Development is test-first at the Engine Contract seam, and that seam is the only
-  substitution point: Rust tests run the real core and CLI against `fake-engine`.
+- Development is test-first, and substitution happens only at process boundaries: Rust
+  tests run the real core and CLI against `fake-engine` (the Engine Contract seam), and
+  system tools the core shells out to (ffmpeg, uv) are stubbed as fake executables on a
+  hermetic PATH (ADR-0004). No in-process seams.
 - Engine tests fake audio-separator at its Python interface. No test anywhere may need
   PyTorch, a GPU, or a model download.
 
