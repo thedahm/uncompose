@@ -128,7 +128,7 @@ fn a_failing_uv_surfaces_an_error_and_leaves_no_complete_env() {
 #[test]
 fn provisioning_requires_uv_managed_python() {
     // A system interpreter may lack the dev headers that source-only
-    // dependencies (diffq on 3.12) compile against; uv-managed CPython
+    // dependencies (diffq past cp310) compile against; uv-managed CPython
     // ships its own. Every uv call must therefore pin UV_MANAGED_PYTHON.
     let tmp = tempfile::tempdir().expect("tempdir");
     let uv = write_fake_uv(tmp.path());

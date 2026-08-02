@@ -62,13 +62,13 @@ pub fn ensure_engine_env(
     on_event(ProvisionEvent::Step {
         description: "creating the engine environment".into(),
     });
-    // The interpreter pin matches the engine's `requires-python`
-    // (engine/pyproject.toml); uv fetches the managed CPython on demand,
-    // which is exactly the clean-machine case.
+    // 3.10, not newest: diffq (via demucs) ships binary wheels only up to
+    // cp310, and a clean user machine has no C compiler to build it. uv
+    // fetches the managed CPython on demand — the clean-machine case.
     run_uv(
         uv,
         uv_command(uv)
-            .args(["venv", "--python", "3.12"])
+            .args(["venv", "--python", "3.10"])
             .arg(env_dir),
         "creating the engine environment",
     )?;
