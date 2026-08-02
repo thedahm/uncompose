@@ -10,6 +10,9 @@ mod support;
 #[path = "../../core/tests/support/fake_uv.rs"]
 mod fake_uv;
 
+#[path = "../../core/tests/support/weights.rs"]
+mod weights;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -28,6 +31,8 @@ fn bin_dir(dir: &Path) -> PathBuf {
 fn uncompose(dir: &Path, input_name: &str) -> Command {
     let input = dir.join(input_name);
     std::fs::write(&input, b"not really audio").expect("writing input");
+    // Warm weight cache: the auto-fetch trusts presence and stays offline.
+    weights::seed_weights(&dir.join("cache"));
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_uncompose"));
     cmd.args(["separate", input.to_str().expect("utf8 path")])
         .args(["--device", "cpu"])

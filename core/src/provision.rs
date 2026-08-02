@@ -62,13 +62,13 @@ pub fn ensure_engine_env(
     on_event(ProvisionEvent::Step {
         description: "creating the engine environment".into(),
     });
-    // The interpreter pin matches the engine's `requires-python`
-    // (engine/pyproject.toml); uv fetches a managed CPython when the host
-    // has none, which is exactly the clean-machine case.
+    // 3.10, not newest: diffq (via demucs) ships binary wheels only up to
+    // cp310, and a clean user machine has no C compiler to build it. uv
+    // fetches the managed CPython on demand — the clean-machine case.
     run_uv(
         uv,
-        Command::new(uv)
-            .args(["venv", "--python", "3.12"])
+        uv_command(uv)
+            .args(["venv", "--python", "3.10"])
             .arg(env_dir),
         "creating the engine environment",
     )?;
@@ -79,7 +79,7 @@ pub fn ensure_engine_env(
     });
     run_uv(
         uv,
-        Command::new(uv)
+        uv_command(uv)
             .args(["pip", "install", "--python"])
             .arg(&python)
             .arg(&requirement),
@@ -88,6 +88,17 @@ pub fn ensure_engine_env(
 
     std::fs::write(&marker, engine_version).context("writing provision marker")?;
     Ok(python)
+}
+
+/// Base uv invocation: every call requires uv-managed CPython. A system
+/// interpreter may lack the dev headers that source-only dependencies
+/// (diffq on 3.12) compile against; the managed build always ships them,
+/// so provisioning behaves the same on every machine. Env var rather than
+/// flag so an older uv degrades to its own default instead of erroring.
+fn uv_command(uv: &Path) -> Command {
+    let mut command = Command::new(uv);
+    command.env("UV_MANAGED_PYTHON", "1");
+    command
 }
 
 /// True when the marker records exactly the engine version we want; a

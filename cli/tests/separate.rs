@@ -7,6 +7,9 @@
 #[path = "../../core/tests/support/mod.rs"]
 mod support;
 
+#[path = "../../core/tests/support/weights.rs"]
+mod weights;
+
 use std::io::{BufRead, BufReader};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
@@ -22,10 +25,18 @@ fn uncompose(dir: &Path, input_name: &str) -> Command {
         // The ffmpeg presence check must not depend on the host machine, so
         // give the CLI a hermetic PATH with a stub ffmpeg on it.
         .env("PATH", bin_dir_with_ffmpeg(dir))
-        // Keep the model cache and last-job pointer inside the test's tempdir.
-        .env("XDG_CACHE_HOME", dir.join("cache"))
+        // Keep the model cache and last-job pointer inside the test's tempdir,
+        // pre-seeded so the weight auto-fetch sees a warm cache.
+        .env("XDG_CACHE_HOME", seeded_cache(dir))
         .env("XDG_STATE_HOME", dir.join("state"));
     cmd
+}
+
+/// The test's XDG cache dir, with every manifest weight pre-seeded.
+fn seeded_cache(dir: &Path) -> std::path::PathBuf {
+    let cache = dir.join("cache");
+    weights::seed_weights(&cache);
+    cache
 }
 
 /// Create `<dir>/bin/ffmpeg` (executable) and return the `bin` directory, so a

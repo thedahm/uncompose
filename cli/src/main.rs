@@ -11,7 +11,7 @@ use std::time::Instant;
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
-use uncompose_core::fetch::{ensure_model, FetchEvent, HttpFetcher};
+use uncompose_core::fetch::{self, ensure_model, FetchEvent, HttpFetcher};
 use uncompose_core::preset::{self, Preset};
 use uncompose_core::registry;
 use uncompose_core::{
@@ -125,31 +125,40 @@ fn models_fetch(target: &str) -> Result<()> {
                 entry.id
             );
         }
-        ensure_model(entry, &model_dir, &HttpFetcher, |event| match event {
-            FetchEvent::License { model_id, license } => {
-                println!("{model_id}: weights are {}", license.label);
-            }
-            FetchEvent::Cached { file_name } => println!("  {file_name}: already cached"),
-            FetchEvent::DownloadStarted { file_name, .. } => {
-                println!("  {file_name}: downloading");
-            }
-            FetchEvent::DownloadProgress {
-                file_name,
-                downloaded,
-                total_bytes,
-            } => {
-                match total_bytes {
-                    Some(total) => print!("\r  {file_name}: {downloaded}/{total} bytes"),
-                    None => print!("\r  {file_name}: {downloaded} bytes"),
-                }
-                std::io::stdout().flush().ok();
-            }
-            FetchEvent::DownloadFinished { file_name } => {
-                println!("\r  {file_name}: fetched and verified");
-            }
-        })?;
+        ensure_model(entry, &model_dir, &HttpFetcher, print_fetch_event)?;
     }
     Ok(())
+}
+
+/// One printed line per fetch event: the license relay, then a byte-progress
+/// line per file. Shared by `models fetch` and the `separate` auto-fetch so
+/// the two surfaces cannot drift.
+fn print_fetch_event(event: FetchEvent) {
+    match event {
+        FetchEvent::License { model_id, license } => {
+            println!("{model_id}: weights are {}", license.label);
+        }
+        FetchEvent::Cached { file_name } => println!("  {file_name}: already cached"),
+        FetchEvent::DownloadStarted { file_name, .. } => {
+            println!("  {file_name}: downloading");
+        }
+        FetchEvent::DownloadProgress {
+            file_name,
+            downloaded,
+            total_bytes,
+        } => {
+            // \x1b[K erases the rest of the line: the finished line is
+            // shorter than the byte counter it overwrites.
+            match total_bytes {
+                Some(total) => print!("\r  {file_name}: {downloaded}/{total} bytes\x1b[K"),
+                None => print!("\r  {file_name}: {downloaded} bytes\x1b[K"),
+            }
+            std::io::stdout().flush().ok();
+        }
+        FetchEvent::DownloadFinished { file_name } => {
+            println!("\r  {file_name}: fetched and verified\x1b[K");
+        }
+    }
 }
 
 fn models_remove(id: &str) -> Result<()> {
@@ -192,12 +201,31 @@ fn separate(
     // will actually happen, not the literal `auto`.
     let device = resolve_device(&device)?;
 
+    // Check the input before any slow first-run work: a typo'd path must
+    // not cost a multi-GB weight download first. run_job re-checks when it
+    // canonicalizes; this is the fail-fast copy of the same message.
+    if !song.is_file() {
+        bail!("input not found: {}", song.display());
+    }
+
+    let model_dir = default_model_dir();
+    // Weights auto-fetch on first use of a preset (story 8), before the
+    // engine environment resolves so the two slow first-run surprises
+    // arrive in one visible block. Warm caches stay quiet.
+    let entries = registry::resolve(preset.name).ok_or_else(|| {
+        anyhow!(
+            "preset '{}' names models missing from the manifest",
+            preset.name
+        )
+    })?;
+    fetch::ensure_weights(&entries, &model_dir, &HttpFetcher, print_fetch_event)?;
+
     let config = JobConfig {
         input: song.clone(),
         preset,
         parameters: serde_json::json!({}),
         device: device.clone(),
-        model_dir: default_model_dir(),
+        model_dir,
         state_dir: state::default_state_dir(),
         engine_python: engine::resolve_engine_python(print_provision_event)?,
         output,

@@ -2,7 +2,11 @@
 name = "uncompose-engine"
 version = "0.1.0"
 description = "Separation engine shim: JSONL Engine Contract on one side, audio-separator on the other"
-requires-python = ">=3.12"
+# Floor matches audio-separator; the runtime Engine Environment is pinned to
+# 3.10 specifically because diffq (via demucs) ships binary wheels only up to
+# cp310 — any newer interpreter forces a C build, which a clean user machine
+# cannot do (ADR-0004).
+requires-python = ">=3.10"
 license = "MIT"
 dependencies = ["audio-separator[gpu]>=0.44.5"]
 

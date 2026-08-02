@@ -29,8 +29,12 @@ On first `separate`, the core finds `uv` on PATH (it is missing only when the us
 with plain pip; the error says how to get it), then builds
 `~/.local/share/uncompose/engine/<version>/`:
 
-- `uv venv --python 3.12 <dir>` — uv fetches a managed CPython when the host has none, which
-  is exactly the clean-machine case; then `uv pip install uncompose-engine==<version>` into it.
+- `uv venv --python 3.10 <dir>`, with `UV_MANAGED_PYTHON=1` on every uv call — the managed
+  CPython ships its own dev headers, and uv fetches it when the host has none, which is
+  exactly the clean-machine case; then `uv pip install uncompose-engine==<version>` into it.
+  The pin is 3.10 (not newest) and managed (not system) because both were learned the hard
+  way on clean machines: diffq — a demucs dependency — ships binary wheels only up to cp310,
+  and building it from source needs Python headers plus a C compiler no clean machine has.
 - A `.provisioned` marker is written last — the same completion-marker rule `job.json`
   follows. A directory without it is a crashed provision and is wiped and rebuilt; so is an
   env whose marker records another version.

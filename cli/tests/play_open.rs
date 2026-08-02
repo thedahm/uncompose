@@ -7,6 +7,9 @@
 #[path = "../../core/tests/support/mod.rs"]
 mod support;
 
+#[path = "../../core/tests/support/weights.rs"]
+mod weights;
+
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -16,6 +19,8 @@ use std::process::Command;
 fn separate(home: &Path) -> PathBuf {
     let input = home.join("song.wav");
     std::fs::write(&input, b"not really audio").expect("writing input");
+    // Warm weight cache: the auto-fetch trusts presence and stays offline.
+    weights::seed_weights(&home.join("cache"));
     let status = Command::new(env!("CARGO_BIN_EXE_uncompose"))
         .args(["separate", input.to_str().unwrap(), "--device", "cpu"])
         .env("UNCOMPOSE_ENGINE_PYTHON", support::fake_engine())

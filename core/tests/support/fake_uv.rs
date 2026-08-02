@@ -28,6 +28,7 @@ pub fn write_fake_uv(bin: &Path, log_dir: &Path, python_source: Option<&Path>) -
 # The CLI may run us on a hermetic PATH; restore one for mkdir/cp below.
 PATH=/usr/bin:/bin
 echo "$@" >> "{log}"
+echo "UV_MANAGED_PYTHON=$UV_MANAGED_PYTHON" >> "{env_log}"
 if [ "$1" = venv ]; then
   for a; do env_dir=$a; done
   mkdir -p "$env_dir/bin"
@@ -35,6 +36,7 @@ if [ "$1" = venv ]; then
 fi
 "#,
         log = log_dir.join("uv.log").display(),
+        env_log = log_dir.join("uv-env.log").display(),
     );
     let path = bin.join("uv");
     write_executable(&path, &script);

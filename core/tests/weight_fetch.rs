@@ -301,3 +301,54 @@ fn manifest_pins_the_two_v01_models_with_relayed_license_and_tier() {
 
     assert!(registry::find("no_such_model").is_none());
 }
+
+/// The `separate`-side entry point (#37, story 8): make a pipeline's weights
+/// present before a run. A model whose files all exist is trusted as-is —
+/// no re-hash of multi-GB files on every run, and no network — while a
+/// missing model goes through the full fetch-and-verify path.
+mod ensure_weights {
+    use super::*;
+    use uncompose_core::fetch::ensure_weights;
+
+    #[test]
+    fn a_warm_cache_is_quiet_and_never_touches_the_network() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let entry = one_file_entry();
+        // Present but deliberately not the pinned bytes: presence is trust.
+        std::fs::write(dir.path().join("a.ckpt"), b"already here").expect("seed");
+
+        let events = collect(|ev| {
+            ensure_weights(&[&entry], dir.path(), &ForbiddenFetcher, |e| ev.push(e))
+                .expect("warm cache succeeds");
+        });
+        assert!(events.is_empty(), "no chatter on a warm cache: {events:?}");
+    }
+
+    #[test]
+    fn a_missing_model_is_fetched_verified_and_license_relayed() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let entry = one_file_entry();
+        let fetcher = FakeFetcher::new(&[(URL_A, BYTES_A)]);
+
+        let events = collect(|ev| {
+            ensure_weights(&[&entry], dir.path(), &fetcher, |e| ev.push(e))
+                .expect("fetch succeeds");
+        });
+
+        assert!(dir.path().join("a.ckpt").is_file(), "weights landed");
+        assert_eq!(
+            events.first(),
+            Some(&FetchEvent::License {
+                model_id: "fake_model".into(),
+                license: MIT,
+            }),
+            "license relayed before bytes move"
+        );
+        assert!(
+            events.iter().any(
+                |e| matches!(e, FetchEvent::DownloadFinished { file_name } if file_name == "a.ckpt")
+            ),
+            "download completed and verified: {events:?}"
+        );
+    }
+}
