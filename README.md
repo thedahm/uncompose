@@ -35,6 +35,54 @@ UV_TORCH_BACKEND=cpu uncompose separate song.mp3
 ```
 
 Later runs reuse the environment; the variable is only needed while it is first built.
+Model weights (≈900 MB for the default preset) download automatically on first use,
+hash-verified, with each model's license status shown.
+
+## Quickstart
+
+```sh
+uncompose separate song.mp3
+```
+
+That produces `song.stems/` next to the input:
+
+```
+song.stems/
+├── vocals.wav  drums.wav  bass.wav  guitar.wav  keys.wav  other.wav
+├── engine.log
+└── job.json
+```
+
+Every run prints a header first — input, preset, models with their license status,
+device, output folder — so you know what is about to happen before the slow part
+starts. Repeated runs on the same input never overwrite: you get `song.stems-2/`,
+`song.stems-3/`, and so on. `job.json` records everything needed to understand or
+rerun the job (input hash, models, device, timings); it is written last, so its
+presence means the folder is complete.
+
+Then:
+
+```sh
+uncompose play vocals      # audition a stem of the last job (mpv or ffplay)
+uncompose open             # open the last job's folder
+uncompose models list      # cached models, license status, hardware needs
+uncompose models fetch 6-stem   # pre-download weights before a session
+```
+
+### Presets and devices
+
+- `6-stem` (default): vocals, drums, bass, guitar, keys, other. A Mel-Band RoFormer
+  vocal pass followed by htdemucs_6s for the rest.
+- `2-stem` (`--preset 2-stem`): vocals and instrumental. GPU-required.
+
+The `keys.wav` caveat: the v0.1 model behind it is piano-trained. Acoustic piano
+lands in `keys.wav`; synths and organs usually land in `other.wav`. The stem keeps
+the name `keys` so nothing changes when a broader keys model arrives.
+
+Device is auto-detected: CUDA when an NVIDIA GPU is present, CPU otherwise
+(`--device cpu|cuda` overrides). On the machine of record a song takes 1 to 5
+minutes on GPU; CPU produces identical stems but takes tens of minutes — correct,
+just slow.
 
 ## Requirements
 
