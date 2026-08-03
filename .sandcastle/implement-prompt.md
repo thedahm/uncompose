@@ -1,48 +1,62 @@
-# Context
+# TASK
 
-## Open issues
+Fix issue {{TASK_ID}}: {{ISSUE_TITLE}}
 
-!`gh issue list --state open --label ready-for-agent --limit 100 --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'`
+Pull in the issue using `gh issue view <ID>`. If it has a parent PRD, pull that in too.
 
-The list above has already been filtered to issues ready for work and is the sole source of truth for what work exists. Do not run your own unfiltered query to find more issues — if the list is empty, there is nothing to do.
+Only work on the issue specified.
 
-## Recent RALPH commits (last 10)
+Work on branch {{BRANCH}}. Make commits and run tests.
 
-!`git log --oneline --grep="RALPH" -10`
+# CONTEXT
 
-# Task
+Here are the last 10 commits:
 
-You are RALPH — an autonomous coding agent working through issues one at a time.
+<recent-commits>
 
-## Picking an issue
+!`git log -n 10 --format="%H%n%ad%n%B---" --date=short`
 
-Every issue in the list is fully specified and ready for work — do not re-triage or
-re-prioritize. Pick the oldest (lowest-numbered) issue that is not blocked by another
-open issue.
+</recent-commits>
 
-## Workflow
+# EXPLORATION
 
-1. **Explore** — read the issue carefully. Pull in the parent PRD if referenced. Read the relevant source files and tests before writing any code.
-2. **Plan** — decide what to change and why. Keep the change as small as possible.
-3. **Execute** — work red-green-refactor: write a failing test first, then write the implementation to pass it.
-4. **Verify** — run `cargo fmt --check`, `cargo clippy --workspace`, and `cargo test --workspace` at the repo root before committing. If you touched `engine/`, also run `uv sync && uv run pytest` inside `engine/`. Fix any failures before proceeding. Never install PyTorch or download models — every test runs against `fake-engine` or a faked audio-separator interface.
-5. **Commit** — make a single git commit. The message MUST:
-   - Start with `RALPH:` prefix
-   - Include the task completed and any PRD reference
-   - List key decisions made
-   - List files changed
-   - Note any blockers for the next iteration
-6. **Hand back** — do NOT close the issue; a human merges the branch and closes it. Instead, comment on the issue with what was done and the branch name ({{SOURCE_BRANCH}}), then swap labels: `gh issue edit <ID> --remove-label ready-for-agent --add-label ready-for-human`.
+Explore the repo and fill your context window with relevant information that will allow you to complete the task.
 
-## Rules
+Pay extra attention to test files that touch the relevant parts of the code.
 
-- Work on **one issue per iteration**. Do not attempt multiple issues in a single iteration.
-- Do not hand back an issue until you have committed the fix and verified tests pass.
-- Do not leave commented-out code or TODO comments in committed code.
-- If you are blocked (missing context, failing tests you cannot fix, external dependency), dequeue the issue instead of committing anything: comment on it explaining the blocker, then `gh issue edit <ID> --remove-label ready-for-agent --add-label needs-info`. Do not close it. This takes it out of the queue so the next run moves past it.
+# EXECUTION
 
-# Done
+If applicable, use RGR to complete the task.
 
-When all actionable issues are complete (or you are blocked on all remaining ones), or the open-issues block at the top of this prompt is empty, output the completion signal:
+1. RED: write one test
+2. GREEN: write the implementation to pass that test
+3. REPEAT until done
+4. REFACTOR the code
 
-<promise>COMPLETE</promise>
+# FEEDBACK LOOPS
+
+Before committing, run `npm run typecheck` and `npm run test` to ensure the tests pass.
+
+# COMMIT
+
+Make a git commit. The commit message must:
+
+1. Start with `RALPH:` prefix
+2. Include task completed + PRD reference
+3. Key decisions made
+4. Files changed
+5. Blockers or notes for next iteration
+
+Keep it concise.
+
+# THE ISSUE
+
+If the task is not complete, leave a comment on the issue with what was done.
+
+Do not close the issue - this will be done later.
+
+Once complete, output <promise>COMPLETE</promise>.
+
+# FINAL RULES
+
+ONLY WORK ON A SINGLE TASK.
