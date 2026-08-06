@@ -25,6 +25,7 @@
     --cand-b: #8db8a4;
     --cand-b-dim: #8db8a433;
     --danger: #c96f5a;
+    --stem-vocals: #bd93d6; --stem-drums: #7fa9c9; --stem-bass: #cf8f6a;
     --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     --serif: Georgia, "Times New Roman", serif;
   }
@@ -35,6 +36,7 @@
       --cand-a: #b0742a; --cand-a-dim: #b0742a2b;
       --cand-b: #3e7d63; --cand-b-dim: #3e7d632b;
       --danger: #a84a35;
+      --stem-vocals: #8a4da8; --stem-drums: #33688f; --stem-bass: #a05a2e;
     }
   }
   :root[data-theme="dark"] {
@@ -43,6 +45,7 @@
     --cand-a: #e0a458; --cand-a-dim: #e0a45833;
     --cand-b: #8db8a4; --cand-b-dim: #8db8a433;
     --danger: #c96f5a;
+    --stem-vocals: #bd93d6; --stem-drums: #7fa9c9; --stem-bass: #cf8f6a;
   }
   :root[data-theme="light"] {
     --bg: #f3efe6; --surface: #fbf9f3; --surface-2: #ece7d8;
@@ -50,6 +53,7 @@
     --cand-a: #b0742a; --cand-a-dim: #b0742a2b;
     --cand-b: #3e7d63; --cand-b-dim: #3e7d632b;
     --danger: #a84a35;
+    --stem-vocals: #8a4da8; --stem-drums: #33688f; --stem-bass: #a05a2e;
   }
   * { box-sizing: border-box; }
   body {
@@ -205,8 +209,13 @@
   .vD .track .sm.on-s { border-color: var(--cand-a); color: var(--cand-a); background: var(--cand-a-dim); }
   .vD .track .sm.on-m { border-color: var(--danger); color: var(--danger); }
   .vD .stemtrack.dim canvas { opacity: .25; }
-  .vD .stemlabel { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); background: none; border: 1px solid transparent; padding: 4px 6px; text-align: left; }
-  .vD .stemtrack.sel .stemlabel { color: var(--text); border-color: var(--cand-a); background: var(--cand-a-dim); }
+  .vD .lanesblock { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px 10px; }
+  .vD .stemsbar { display: flex; align-items: center; gap: 10px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .vD .stemsbar button { padding: 2px 10px; font-size: 11px; font-family: var(--mono); }
+  .vD .stemcell { display: flex; align-items: center; gap: 6px; }
+  .vD .swatch { width: 16px; height: 16px; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: none; cursor: pointer; }
+  .vD .stemlabel { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; background: none; border: 1px solid transparent; padding: 4px 6px; text-align: left; }
+  .vD .stemtrack.sel .stemlabel { border-color: var(--cand-a); background: var(--cand-a-dim); }
   .vD .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
   .vD .seg button { border: none; border-radius: 0; padding: 4px 10px; font-size: 12px; font-family: var(--mono); background: transparent; }
   .vD .seg button.on { background: var(--surface-2); color: var(--cand-a); }
@@ -343,6 +352,14 @@ const engine = {
   },
   toggleStemMute(s) { this.stems.mute[s] = !this.stems.mute[s]; this._applyGains(); this.onchange(); },
   toggleStemSolo(s) { this.stems.solo[s] = !this.stems.solo[s]; this._applyGains(); this.onchange(); },
+  matchStems(list) {   // solo exactly these stems (a stem pin's audible set)
+    STEMS.forEach(s => { this.stems.solo[s] = list.includes(s); this.stems.mute[s] = false; });
+    this._applyGains(); this.onchange();
+  },
+  resetStems() {       // everything unmuted, no solo
+    STEMS.forEach(s => { this.stems.solo[s] = false; this.stems.mute[s] = false; });
+    this._applyGains(); this.onchange();
+  },
   _gainFor(target, stem) {
     if (target === "src") return this.active === "src" ? 1 : 0;
     return (this.active === target && this.stemOn(stem)) ? 1 : 0;
@@ -455,6 +472,7 @@ const store = {
   mapping: [0, 1],          // label index -> candidate index (shuffled when blind)
   view: "wave",             // "wave" | "loud" | "spec"
   selectedStem: null,        // stem name targeted by new pins, or null
+  stemColors: {},            // user overrides; defaults come from the theme's --stem-* vars
   observations: [],          // {at, label: 'A'|'B'|null, note, stems: [names]|null}
   result: null,              // {preferred, confidence, criterion}
   history: [], future: [],   // undo/redo stacks (observation ops)
@@ -523,6 +541,10 @@ const fmt = s => {
   const m = Math.floor(s / 60), sec = (s % 60).toFixed(1).padStart(4, "0");
   return `${m}:${sec}`;
 };
+function stemColor(s) {
+  return store.stemColors[s] ||
+    getComputedStyle(document.documentElement).getPropertyValue(`--stem-${s}`).trim();
+}
 function candName(label) {
   if (store.blind && !store.result) return "concealed";
   return CANDS[store.candOfLabel(label)].asset;
@@ -604,7 +626,7 @@ function drawWave(canvas, candIdx, opts = {}) {
     let buf, color;
     if (opts.buffer) {
       buf = opts.buffer;
-      color = opts.color === "A" ? colA : opts.color === "B" ? colB : muted;
+      color = opts.colorHex || (opts.color === "A" ? colA : opts.color === "B" ? colB : muted);
     }
     else if (candIdx === "src") { buf = engine.buffers.src; color = muted; }
     else {
@@ -1016,7 +1038,10 @@ function renderD(root) {
   };
   const stemRow = s => `
     <div class="track stemtrack ${engine.stemOn(s) ? "" : "dim"} ${store.selectedStem === s ? "sel" : ""}">
-      <button class="stemlabel" data-selstem="${s}" title="Target pins at the ${s} stem">${s}</button>
+      <span class="stemcell">
+        <input type="color" class="swatch" data-stemcolor="${s}" value="${stemColor(s)}" title="Stem color">
+        <button class="stemlabel" data-selstem="${s}" style="color:${stemColor(s)}" title="Target pins at the ${s} stem">${s}</button>
+      </span>
       <button class="sm ${engine.stems.solo[s] ? "on-s" : ""}" data-solo="${s}" title="Solo ${s}">S</button>
       <button class="sm ${engine.stems.mute[s] ? "on-m" : ""}" data-mute="${s}" title="Mute ${s}">M</button>
       <div>
@@ -1080,9 +1105,8 @@ function renderD(root) {
         <label class="label" style="display:inline-flex;gap:6px;align-items:center;cursor:pointer" title="What Stop does with the playhead">
           <input type="checkbox" id="d-stopmode" ${engine.stopMode === "return" ? "checked" : ""}> stop returns
         </label>
-        <span class="label" style="margin-left:auto">click = seek · drag = loop · ? help</span>
       </div>
-      <div style="margin-top:18px">
+      <div class="lanesblock" style="margin-top:18px">
         ${concealedLanes ? `
         <div class="blindswitch" style="margin-bottom:4px">
           <button id="d-bsA" class="la ${lab === "A" ? "on" : ""}">A</button>
@@ -1091,9 +1115,12 @@ function renderD(root) {
         <span class="label">blind — candidate lanes hidden · switch with the buttons or x</span>` : ""}
         ${laneRow("src")}
         ${concealedLanes ? "" : laneRow("A") + laneRow("B")}
-        <div style="margin-top:14px"><span class="label">stems — ${concealedLanes ? "concealed candidate" : (lab === "src" ? "last A/B lane" : lab)} · click a stem name to target pins · S/M synchronized across lanes</span></div>
-        ${STEMS.map(stemRow).join("")}
       </div>
+      <div class="stemsbar">
+        <span class="label">stems — ${concealedLanes ? "concealed candidate" : (lab === "src" ? "last A/B lane" : lab)}</span>
+        <button id="d-stemreset" title="All stems audible — clear solo/mute (0)" style="margin-left:auto">reset S/M</button>
+      </div>
+      ${STEMS.map(stemRow).join("")}
     </div>
 
     <div class="ledger">
@@ -1101,7 +1128,7 @@ function renderD(root) {
       <div id="d-entries">
         ${store.observations.map((o, i) => `
         <div class="entry" id="led-${i}">
-          <span class="tc t" data-t="${o.at}" title="Jump here">${fmt(o.at)}</span>
+          <span class="tc t" data-t="${o.at}" data-i="${i}" title="${o.stems ? "Jump here and solo " + o.stems.join("+") : "Jump here"}">${fmt(o.at)}</span>
           <span><span class="chip ${o.label === "A" ? "a" : o.label === "B" ? "b" : ""}">${o.label || "AB"}</span>${o.stems ? `<div class="label" style="font-size:9px;margin-top:2px">${o.stems.join("+")}</div>` : ""}</span>
           <span class="note" data-i="${i}" title="Click to edit">${o.note}</span>
           <button class="del" data-i="${i}" title="Delete (undo: ctrl-z)">✕</button>
@@ -1133,8 +1160,13 @@ function renderD(root) {
     </dialog>
 
     <dialog id="d-helpdlg">
-      <h2 style="margin:0 0 10px;font-size:16px">Workbench help</h2>
-      <p style="color:var(--muted);font-size:13px;margin:0 0 12px">Click a lane row (SRC/A/B) to audition it. Drag on any waveform to set the loop region; click to seek. The view toggle switches waveform / loudness / spectral rendering everywhere. Carets above a waveform belong to A, below to B, diamonds on it to both — whole-track pins sit on the big waveform, stem pins on their stem track; hover or click one to find its ledger entry. Click a stem name to target new pins at that stem; with stems solo'd or muted, pins target the audible stems instead. Each stem track's S/M is synchronized across lanes and shows the candidate being auditioned. Blind mode hides the A/B lanes (switch with the buttons or <kbd>x</kbd>) and shuffles which file is which. The verdict stays editable after saving; confidence reads as color-coded stars.</p>
+      <h2 style="margin:0 0 12px;font-size:16px">Workbench help</h2>
+      <div style="display:flex;flex-direction:column;gap:10px;font-size:13px;margin-bottom:14px">
+        <div><span class="label">transport</span><br>Click a waveform to seek; drag to set the loop. Playing from before the loop runs into it, then loops.</div>
+        <div><span class="label">lanes &amp; stems</span><br>Click SRC/A/B to audition. S solos, M mutes — synchronized across lanes. Stem tracks show the candidate being auditioned; swatches recolor a stem.</div>
+        <div><span class="label">pins</span><br>Click a stem name to target pins at that stem; solo/mute narrows pins to what's audible. Carets: ▼ above = A, ▲ below = B, ◆ on = both; whole-track pins on the big wave, stem pins on their track. Clicking a stem pin's timestamp solos what it heard.</div>
+        <div><span class="label">blind &amp; verdict</span><br>Blind hides the A/B lanes and shuffles identities. Verdicts stay editable after saving; confidence is color-coded stars.</div>
+      </div>
       <table>
         <tr><td><kbd>space</kbd></td><td>play / stop (see "stop returns" toggle)</td></tr>
         <tr><td><kbd>x</kbd></td><td>toggle A / B</td></tr>
@@ -1143,6 +1175,7 @@ function renderD(root) {
         <tr><td><kbd>home</kbd> or <kbd>shift+←</kbd></td><td>rewind to beginning</td></tr>
         <tr><td><kbd>r</kbd></td><td>activate / deactivate loop (playhead before the region plays into it, then loops; deactivating mid-loop continues out)</td></tr>
         <tr><td><kbd>u</kbd></td><td>clear loop (playback continues)</td></tr>
+        <tr><td><kbd>0</kbd></td><td>reset solo/mute — all stems audible</td></tr>
         <tr><td><kbd>tab</kbd></td><td>focus the observation composer</td></tr>
         <tr><td><kbd>enter</kbd></td><td>pin observation to the live lane</td></tr>
         <tr><td><kbd>shift+enter</kbd></td><td>pin observation to both lanes</td></tr>
@@ -1164,7 +1197,7 @@ function renderD(root) {
     STEMS.forEach(s => {
       const c = q(`[data-stemwave="${s}"]`);
       // stem tracks display the candidate being auditioned (feedback: A/B toggle swaps them)
-      if (c) drawWave(c, null, { buffer: engine.buffers.cands[dispCand][s], color: store.labelOf(dispCand) });
+      if (c) drawWave(c, null, { buffer: engine.buffers.cands[dispCand][s], colorHex: stemColor(s) });
     });
   };
   redraw();
@@ -1183,6 +1216,11 @@ function renderD(root) {
     store.emit();
   });
   root.querySelectorAll("[data-view]").forEach(b => b.onclick = () => { store.view = b.dataset.view; store.emit(); });
+  root.querySelector("#d-stemreset").onclick = () => engine.resetStems();
+  root.querySelectorAll("[data-stemcolor]").forEach(inp => inp.onchange = () => {
+    store.stemColors[inp.dataset.stemcolor] = inp.value;
+    store.emit();
+  });
 
   /* --- transport --- */
   root.querySelector("#d-play").onclick = () => engine.toggle();
@@ -1211,7 +1249,12 @@ function renderD(root) {
   const entries = root.querySelector("#d-entries");
   entries.addEventListener("click", e => {
     const t = e.target.classList.contains("t") && e.target.dataset.t;
-    if (t) { engine.seek(+t); return; }
+    if (t) {
+      const o = store.observations[+e.target.dataset.i];
+      engine.seek(+t);
+      if (o && o.stems) engine.matchStems(o.stems);   // hear what the pin heard
+      return;
+    }
     if (e.target.classList.contains("del")) { store.delObs(+e.target.dataset.i); return; }
     if (e.target.classList.contains("note")) {
       const i = +e.target.dataset.i;
@@ -1285,6 +1328,7 @@ function renderD(root) {
     else if (e.key === "ArrowRight" || e.key === "=" || e.key === "+") engine.step(2);
     else if (e.key === "r") engine.toggleLoopActive();
     else if (e.key === "u") engine.clearLoop();
+    else if (e.key === "0") engine.resetStems();
     else if (e.key === "?") { help.open ? help.close() : help.showModal(); }
   };
   document.addEventListener("keydown", keys);
