@@ -187,20 +187,30 @@
   .vD .pref-badge { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; color: var(--cand-a); border: 1px solid var(--cand-a); border-radius: 999px; padding: 1px 8px; }
   .vD .pins { position: relative; height: 16px; }
   .vD .pins .mk { position: absolute; transform: translateX(-50%); font-size: 11px; font-family: var(--mono); cursor: pointer; line-height: 16px; }
-  .vD .lanes { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
-  .vD .srclane canvas { opacity: .65; }
   .vD .blindswitch { display: flex; gap: 12px; }
-  .vD .blindswitch button { flex: 1; padding: 18px 10px; font-family: var(--mono); font-size: 20px; border-radius: 10px; }
+  .vD .blindswitch button { flex: 1; padding: 14px 10px; font-family: var(--mono); font-size: 18px; border-radius: 10px; }
   .vD .blindswitch button.on.la { border-color: var(--cand-a); background: var(--cand-a-dim); color: var(--cand-a); }
   .vD .blindswitch button.on.lb { border-color: var(--cand-b); background: var(--cand-b-dim); color: var(--cand-b); }
   .vD .waveWrap { position: relative; }
   .vD .pins.overlay { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); height: 16px; pointer-events: none; }
   .vD .pins.overlay .mk { pointer-events: auto; }
-  .vD .stemtrack { display: grid; grid-template-columns: 64px 26px 26px 1fr; gap: 8px; align-items: center; margin-top: 8px; }
-  .vD .stemtrack .sm { width: 26px; padding: 2px 0; font-family: var(--mono); font-size: 11px; text-align: center; }
-  .vD .stemtrack .sm.on-s { border-color: var(--cand-a); color: var(--cand-a); background: var(--cand-a-dim); }
-  .vD .stemtrack .sm.on-m { border-color: var(--danger); color: var(--danger); }
+  .vD .pins.mini { height: 10px; }
+  .vD .pins.mini .mk { font-size: 9px; line-height: 10px; }
+  .vD .track { display: grid; grid-template-columns: 96px 26px 26px 1fr; gap: 8px; align-items: center; margin-top: 8px; }
+  .vD .lane-row { cursor: pointer; border: 1px solid transparent; border-radius: 8px; padding: 4px 6px; }
+  .vD .lane-row.on { border-color: var(--line); background: var(--surface-2); }
+  .vD .lane-row .live { font-family: var(--mono); font-size: 11px; color: var(--muted); text-align: center; grid-column: 2 / 4; }
+  .vD .lane-row.on .live { color: var(--text); }
+  .vD .track .sm { width: 26px; padding: 2px 0; font-family: var(--mono); font-size: 11px; text-align: center; }
+  .vD .track .sm.on-s { border-color: var(--cand-a); color: var(--cand-a); background: var(--cand-a-dim); }
+  .vD .track .sm.on-m { border-color: var(--danger); color: var(--danger); }
   .vD .stemtrack.dim canvas { opacity: .25; }
+  .vD .stemlabel { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); background: none; border: 1px solid transparent; padding: 4px 6px; text-align: left; }
+  .vD .stemtrack.sel .stemlabel { color: var(--text); border-color: var(--cand-a); background: var(--cand-a-dim); }
+  .vD .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .vD .seg button { border: none; border-radius: 0; padding: 4px 10px; font-size: 12px; font-family: var(--mono); background: transparent; }
+  .vD .seg button.on { background: var(--surface-2); color: var(--cand-a); }
+  .vD .stars { font-family: var(--mono); letter-spacing: 2px; }
   .vD .ledger { margin-top: 26px; }
   .vD .entry { display: grid; grid-template-columns: 92px 52px 1fr 30px; gap: 12px; padding: 9px 0; border-bottom: 1px dotted var(--line); align-items: baseline; }
   .vD .entry.hl { background: var(--surface-2); }
@@ -443,7 +453,9 @@ const SOURCE = { asset: "song.wav", detail: "original mix" };
 const store = {
   blind: false,
   mapping: [0, 1],          // label index -> candidate index (shuffled when blind)
-  observations: [],          // {at, label: 'A'|'B'|null, note}
+  view: "wave",             // "wave" | "loud" | "spec"
+  selectedStem: null,        // stem name targeted by new pins, or null
+  observations: [],          // {at, label: 'A'|'B'|null, note, stems: [names]|null}
   result: null,              // {preferred, confidence, criterion}
   history: [], future: [],   // undo/redo stacks (observation ops)
   listeners: [],
@@ -474,9 +486,9 @@ const store = {
   },
   undo() { const op = this.history.pop(); if (op) { this._apply(this._invert(op)); this.future.push(op); this.emit(); } },
   redo() { const op = this.future.pop(); if (op) { this._apply(op); this.history.push(op); this.emit(); } },
-  addObs(note, label) {
+  addObs(note, label, stems) {
     if (!note.trim()) return;
-    this._do({ type: "add", index: this.observations.length, obs: { at: engine.position(), label, note: note.trim() } });
+    this._do({ type: "add", index: this.observations.length, obs: { at: engine.position(), label, note: note.trim(), stems: stems || null } });
   },
   editObs(i, note) {
     if (!note.trim() || note.trim() === this.observations[i].note) { this.emit(); return; }
@@ -499,6 +511,7 @@ const store = {
       },
       observations: this.observations.map(o => ({
         at_seconds: +o.at.toFixed(2), candidate: o.label, note: o.note,
+        ...(o.stems ? { stems: o.stems } : {}),
       })),
       result: this.result,
     };
@@ -517,6 +530,63 @@ function candName(label) {
 function activeLabel() {
   return typeof engine.active === "number" ? store.labelOf(engine.active) : "src";
 }
+/* spectrogram support: radix-2 FFT + per-buffer offscreen cache, tinted per candidate */
+function fft(re, im) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j |= bit;
+    if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = -2 * Math.PI / len, wr = Math.cos(ang), wi = Math.sin(ang);
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let k = 0; k < len / 2; k++) {
+        const ur = re[i + k], ui = im[i + k];
+        const vr = re[i + k + len / 2] * cr - im[i + k + len / 2] * ci;
+        const vi = re[i + k + len / 2] * ci + im[i + k + len / 2] * cr;
+        re[i + k] = ur + vr; im[i + k] = ui + vi;
+        re[i + k + len / 2] = ur - vr; im[i + k + len / 2] = ui - vi;
+        const ncr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = ncr;
+      }
+    }
+  }
+}
+const specCache = new WeakMap();
+function specCanvasFor(buffer, cssColor) {
+  let byColor = specCache.get(buffer);
+  if (!byColor) { byColor = {}; specCache.set(buffer, byColor); }
+  if (byColor[cssColor]) return byColor[cssColor];
+  const N = 512, BINS = 128, COLS = 512;
+  const data = buffer.getChannelData(0);
+  const hop = Math.floor(data.length / COLS);
+  const c = document.createElement("canvas"); c.width = COLS; c.height = BINS;
+  const g = c.getContext("2d");
+  const img = g.createImageData(COLS, BINS);
+  const m = /^#?(..)(..)(..)/.exec(cssColor.replace("#", ""));
+  const rgb = m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : [160, 150, 130];
+  const re = new Float32Array(N), im2 = new Float32Array(N), win = new Float32Array(N);
+  for (let i = 0; i < N; i++) win[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / N));
+  for (let col = 0; col < COLS; col++) {
+    const off = col * hop;
+    for (let i = 0; i < N; i++) { re[i] = (data[off + i] || 0) * win[i]; im2[i] = 0; }
+    fft(re, im2);
+    for (let b = 0; b < BINS; b++) {
+      const mag = Math.hypot(re[b], im2[b]) / N;
+      const db = 20 * Math.log10(mag + 1e-7);
+      const a = Math.max(0, Math.min(1, (db + 78) / 48));   // ≈ -78 dB floor … -30 dB full
+      const p = ((BINS - 1 - b) * COLS + col) * 4;
+      img.data[p] = rgb[0]; img.data[p + 1] = rgb[1]; img.data[p + 2] = rgb[2];
+      img.data[p + 3] = Math.round(a * 255);
+    }
+  }
+  g.putImageData(img, 0, 0);
+  byColor[cssColor] = c;
+  return c;
+}
+
 function drawWave(canvas, candIdx, opts = {}) {
   const dpr = window.devicePixelRatio || 1;
   const w = canvas.clientWidth, h = canvas.clientHeight;
@@ -530,37 +600,56 @@ function drawWave(canvas, candIdx, opts = {}) {
   const colB = styles.getPropertyValue("--cand-b").trim();
   const line = styles.getPropertyValue("--line").trim();
   const muted = styles.getPropertyValue("--muted").trim();
-  if (engine.loop) {
-    g.fillStyle = line;
-    g.globalAlpha = engine.loop.active === false ? 0.25 : 0.5;
-    g.fillRect(engine.loop.start / DUR * w, 0, (engine.loop.end - engine.loop.start) / DUR * w, h);
-    g.globalAlpha = 1;
-  }
   if (engine.buffers) {
-    let data, color;
+    let buf, color;
     if (opts.buffer) {
-      data = opts.buffer.getChannelData(0);
+      buf = opts.buffer;
       color = opts.color === "A" ? colA : opts.color === "B" ? colB : muted;
     }
-    else if (candIdx === "src") { data = engine.buffers.src.getChannelData(0); color = muted; }
+    else if (candIdx === "src") { buf = engine.buffers.src; color = muted; }
     else {
       const ci = candIdx !== undefined ? candIdx : (typeof engine.active === "number" ? engine.active : engine.prevAB);
-      data = engine.buffers.cands[ci].vocals.getChannelData(0);
+      buf = engine.buffers.cands[ci].vocals;
       color = opts.neutral ? muted : (store.labelOf(ci) === "A" ? colA : colB);
-      if (candIdx === undefined && engine.active === "src") { data = engine.buffers.src.getChannelData(0); color = muted; }
+      if (candIdx === undefined && engine.active === "src") { buf = engine.buffers.src; color = muted; }
     }
-    g.strokeStyle = color;
-    g.beginPath();
-    const step = Math.floor(data.length / w);
-    for (let x = 0; x < w; x++) {
-      let mx = 0;
-      const base = x * step;
-      for (let j = 0; j < step; j += 24) mx = Math.max(mx, Math.abs(data[base + j] || 0));
-      const y = Math.min(h, mx * h * 1.6);
-      g.moveTo(x + 0.5, h / 2 - y / 2 - 0.5);
-      g.lineTo(x + 0.5, h / 2 + y / 2 + 0.5);
+    const view = store.view || "wave";
+    if (view === "spec") {
+      g.drawImage(specCanvasFor(buf, color), 0, 0, w, h);
+    } else if (view === "loud") {
+      const data = buf.getChannelData(0);
+      const step = Math.floor(data.length / w);
+      g.fillStyle = color; g.globalAlpha = 0.85;
+      g.beginPath(); g.moveTo(0, h);
+      for (let x = 0; x < w; x++) {
+        let sum = 0, cnt = 0;
+        const base = x * step;
+        for (let j = 0; j < step; j += 16) { const v = data[base + j] || 0; sum += v * v; cnt++; }
+        const rms = Math.sqrt(sum / (cnt || 1));
+        g.lineTo(x, h - Math.min(1, rms * 4) * (h - 2));
+      }
+      g.lineTo(w, h); g.closePath(); g.fill(); g.globalAlpha = 1;
+    } else {
+      const data = buf.getChannelData(0);
+      g.strokeStyle = color;
+      g.beginPath();
+      const step = Math.floor(data.length / w);
+      for (let x = 0; x < w; x++) {
+        let mx = 0;
+        const base = x * step;
+        for (let j = 0; j < step; j += 24) mx = Math.max(mx, Math.abs(data[base + j] || 0));
+        const y = Math.min(h, mx * h * 1.6);
+        g.moveTo(x + 0.5, h / 2 - y / 2 - 0.5);
+        g.lineTo(x + 0.5, h / 2 + y / 2 + 0.5);
+      }
+      g.stroke();
     }
-    g.stroke();
+  }
+  if (engine.loop) {
+    g.fillStyle = line;
+    g.globalAlpha = engine.loop.active === false ? 0.25 : 0.45;
+    g.fillRect(engine.loop.start / DUR * w, 0, (engine.loop.end - engine.loop.start) / DUR * w, h);
+    g.globalAlpha = 1;
   }
   const px = engine.position() / DUR * w;
   g.strokeStyle = styles.getPropertyValue("--text").trim();
@@ -897,33 +986,62 @@ function renderC(root) {
    the full keybinding set. */
 function renderD(root) {
   const lab = activeLabel();          // "A" | "B" | "src"
-  const pinsFor = where => {          // where: "A" | "both" | "B"
+  // where: "A" | "both" | "B"; stem: null = whole-track pins only, name = that stem's pins only
+  const pinsFor = (where, stem) => {
     return store.observations.map((o, i) => {
       const slot = o.label === null ? "both" : o.label;
       if (slot !== where) return "";
+      if (stem ? !(o.stems && o.stems.includes(stem)) : o.stems) return "";
       const col = o.label === "A" ? "var(--cand-a)" : o.label === "B" ? "var(--cand-b)" : "var(--muted)";
       const glyph = where === "A" ? "▼" : where === "B" ? "▲" : "◆";
       return `<span class="mk" style="left:${o.at / DUR * 100}%;color:${col}" data-i="${i}" title="${o.note.replace(/"/g, "&quot;")}">${glyph}</span>`;
     }).join("");
   };
-  const laneHTML = l => {
+  const starsFor = conf => {
+    const col = conf <= 2 ? "var(--danger)" : conf === 3 ? "var(--cand-a)" : "var(--cand-b)";
+    return `<span class="stars" style="color:${col}" title="confidence ${conf} of 5">${"★".repeat(conf)}${"☆".repeat(5 - conf)}</span>`;
+  };
+  const laneRow = l => {
+    const isSrc = l === "src";
     const on = lab === l;
-    const preferred = store.result && store.result.preferred === l;
-    return `<div class="lane ${on ? "on" : ""} ${l === "A" ? "la" : "lb"}" data-lane="${l}" role="button" tabindex="0" aria-pressed="${on}">
-      <div class="top">
-        <span><span class="chip ${l === "A" ? "a" : "b"}">${l}</span> <span style="color:var(--muted);font-size:13px">${candName(l)}</span></span>
-        <span style="display:flex;gap:10px;align-items:center">
-          ${preferred ? `<span class="pref-badge">★ preferred · ${store.result.confidence}/5</span>` : ""}
-          <span class="live">${on ? "● live" : "muted"}</span>
-        </span>
-      </div>
-      <canvas class="wave" data-wave="${l}" style="height:56px"></canvas>
+    const preferred = !isSrc && store.result && store.result.preferred === l;
+    return `<div class="track lane-row ${on ? "on" : ""}" data-lane="${l}" role="button" tabindex="0" aria-pressed="${on}" title="${isSrc ? SOURCE.asset + " — " + SOURCE.detail : candName(l)}">
+      <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span class="chip ${l === "A" ? "a" : l === "B" ? "b" : ""}">${isSrc ? "SRC" : l}</span>
+        ${preferred ? starsFor(store.result.confidence) : ""}
+      </span>
+      <span class="live">${on ? "●" : ""}</span>
+      <canvas class="wave" data-wave="${l}" style="height:${isSrc ? 30 : 42}px;${isSrc ? "opacity:.65" : ""}"></canvas>
     </div>`;
+  };
+  const stemRow = s => `
+    <div class="track stemtrack ${engine.stemOn(s) ? "" : "dim"} ${store.selectedStem === s ? "sel" : ""}">
+      <button class="stemlabel" data-selstem="${s}" title="Target pins at the ${s} stem">${s}</button>
+      <button class="sm ${engine.stems.solo[s] ? "on-s" : ""}" data-solo="${s}" title="Solo ${s}">S</button>
+      <button class="sm ${engine.stems.mute[s] ? "on-m" : ""}" data-mute="${s}" title="Mute ${s}">M</button>
+      <div>
+        <div class="pins mini">${pinsFor("A", s)}</div>
+        <div class="waveWrap">
+          <canvas class="wave" data-stemwave="${s}" style="height:34px"></canvas>
+          <div class="pins overlay mini">${pinsFor("both", s)}</div>
+        </div>
+        <div class="pins mini">${pinsFor("B", s)}</div>
+      </div>
+    </div>`;
+  // pin targeting: an explicitly selected stem wins; else the audible subset when
+  // solo/mute has narrowed it; else whole-track (null)
+  const pinStems = () => {
+    if (store.selectedStem) return [store.selectedStem];
+    const audible = STEMS.filter(s => engine.stemOn(s));
+    return audible.length < STEMS.length ? audible : null;
+  };
+  const pinStemDesc = () => {
+    const s = pinStems();
+    return s ? " · " + s.join("+") : "";
   };
   const loop = engine.loop;
   const concealedLanes = store.blind && !store.result;  // feedback: blind hides the A/B lanes
   const dispCand = typeof engine.active === "number" ? engine.active : engine.prevAB;
-  const dispCol = store.labelOf(dispCand) === "A" ? "var(--cand-a)" : "var(--cand-b)";
   root.innerHTML = `
   <div class="vD">
     <header>
@@ -934,34 +1052,21 @@ function renderD(root) {
       </div>
     </header>
 
-    <div class="lanes">
-      ${concealedLanes ? `
-      <div class="blindswitch">
-        <button id="d-bsA" class="la ${lab === "A" ? "on" : ""}">A</button>
-        <button id="d-bsB" class="lb ${lab === "B" ? "on" : ""}">B</button>
-      </div>
-      <span class="label">blind — lanes hidden · switch with the buttons or x</span>`
-      : laneHTML("A") + laneHTML("B")}
-      <div class="lane srclane ${lab === "src" ? "on lsrc" : ""}" data-lane="src" role="button" tabindex="0" aria-pressed="${lab === "src"}">
-        <div class="top">
-          <span><span class="chip">SRC</span> <span style="color:var(--muted);font-size:13px">${SOURCE.asset} — ${SOURCE.detail}</span></span>
-          <span class="live">${lab === "src" ? "● live" : "muted"}</span>
-        </div>
-        <canvas class="wave" data-wave="src" style="height:34px"></canvas>
-      </div>
-    </div>
-
     <div class="stage">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;gap:12px;flex-wrap:wrap">
         <span class="label">now auditioning — <span style="color:var(--text)">${lab === "src" ? SOURCE.asset + " (source)" : lab + " · " + candName(lab)}</span></span>
-        <span class="tc" id="d-clock">${fmt(engine.position())} / ${fmt(DUR)}</span>
+        <span style="display:flex;gap:12px;align-items:center">
+          <span class="seg">${[["wave", "waveform"], ["loud", "loudness"], ["spec", "spectral"]].map(([v, name]) =>
+            `<button data-view="${v}" class="${store.view === v ? "on" : ""}">${name}</button>`).join("")}</span>
+          <span class="tc" id="d-clock">${fmt(engine.position())} / ${fmt(DUR)}</span>
+        </span>
       </div>
-      <div class="pins" id="d-pins-a">${pinsFor("A")}</div>
+      <div class="pins" id="d-pins-a">${pinsFor("A", null)}</div>
       <div class="waveWrap">
         <canvas class="wave" id="d-wave" style="height:88px"></canvas>
-        <div class="pins overlay" id="d-pins-both">${pinsFor("both")}</div>
+        <div class="pins overlay" id="d-pins-both">${pinsFor("both", null)}</div>
       </div>
-      <div class="pins" id="d-pins-b">${pinsFor("B")}</div>
+      <div class="pins" id="d-pins-b">${pinsFor("B", null)}</div>
       <div class="transport">
         <button id="d-play" style="min-width:84px">${engine.playing ? "Stop" : "Play"}</button>
         <span class="loopbox ${loop && loop.active ? "active" : ""}">
@@ -977,15 +1082,17 @@ function renderD(root) {
         </label>
         <span class="label" style="margin-left:auto">click = seek · drag = loop · ? help</span>
       </div>
-      <div style="margin-top:16px">
-        <span class="label">stems — ${concealedLanes ? "concealed candidate" : (lab === "src" ? "last A/B lane" : lab)} · solo/mute synchronized across lanes · not applied to source</span>
-        ${STEMS.map(s => `
-        <div class="stemtrack ${engine.stemOn(s) ? "" : "dim"}">
-          <span class="label">${s}</span>
-          <button class="sm ${engine.stems.solo[s] ? "on-s" : ""}" data-solo="${s}" title="Solo ${s}">S</button>
-          <button class="sm ${engine.stems.mute[s] ? "on-m" : ""}" data-mute="${s}" title="Mute ${s}">M</button>
-          <canvas class="wave" data-stemwave="${s}" style="height:34px"></canvas>
-        </div>`).join("")}
+      <div style="margin-top:18px">
+        ${concealedLanes ? `
+        <div class="blindswitch" style="margin-bottom:4px">
+          <button id="d-bsA" class="la ${lab === "A" ? "on" : ""}">A</button>
+          <button id="d-bsB" class="lb ${lab === "B" ? "on" : ""}">B</button>
+        </div>
+        <span class="label">blind — candidate lanes hidden · switch with the buttons or x</span>` : ""}
+        ${laneRow("src")}
+        ${concealedLanes ? "" : laneRow("A") + laneRow("B")}
+        <div style="margin-top:14px"><span class="label">stems — ${concealedLanes ? "concealed candidate" : (lab === "src" ? "last A/B lane" : lab)} · click a stem name to target pins · S/M synchronized across lanes</span></div>
+        ${STEMS.map(stemRow).join("")}
       </div>
     </div>
 
@@ -995,14 +1102,14 @@ function renderD(root) {
         ${store.observations.map((o, i) => `
         <div class="entry" id="led-${i}">
           <span class="tc t" data-t="${o.at}" title="Jump here">${fmt(o.at)}</span>
-          <span class="chip ${o.label === "A" ? "a" : o.label === "B" ? "b" : ""}">${o.label || "AB"}</span>
+          <span><span class="chip ${o.label === "A" ? "a" : o.label === "B" ? "b" : ""}">${o.label || "AB"}</span>${o.stems ? `<div class="label" style="font-size:9px;margin-top:2px">${o.stems.join("+")}</div>` : ""}</span>
           <span class="note" data-i="${i}" title="Click to edit">${o.note}</span>
           <button class="del" data-i="${i}" title="Delete (undo: ctrl-z)">✕</button>
         </div>`).join("") || `<div style="color:var(--muted);font-family:var(--serif);font-size:15px;margin-top:8px">No entries yet. Press <kbd>tab</kbd> to write; <kbd>enter</kbd> pins the live lane, <kbd>shift+enter</kbd> pins both.</div>`}
       </div>
       <div class="composer">
         <span class="tc" style="color:var(--muted)" id="d-at">${fmt(engine.position())}</span>
-        <input type="text" id="d-note" placeholder="what do you hear? — enter pins ${lab === "src" ? "the last A/B lane" : lab}, shift+enter pins both">
+        <input type="text" id="d-note" placeholder="what do you hear? — enter pins ${lab === "src" ? "the last A/B lane" : lab}${pinStemDesc()}, shift+enter pins both">
       </div>
       ${store.result ? savedBannerHTML() : ""}
     </div>
@@ -1016,7 +1123,7 @@ function renderD(root) {
           <button data-p="B" class="lb">Prefer B</button>
           <button data-p="none" class="ln">No preference</button>
         </div>
-        <label class="label">confidence <input type="range" id="d-conf" min="1" max="5" value="${store.result ? store.result.confidence : 3}"> <span class="tc" id="d-confv">${store.result ? store.result.confidence : 3}</span>/5</label>
+        <label class="label">confidence <input type="range" id="d-conf" min="1" max="5" value="${store.result ? store.result.confidence : 3}"> <span id="d-confv">${starsFor(store.result ? store.result.confidence : 3)}</span></label>
         <input type="text" id="d-crit" placeholder="criterion (e.g. best isolation for transcription)" value="${store.result && store.result.criterion ? store.result.criterion.replace(/"/g, "&quot;") : ""}">
         <div style="display:flex;gap:8px;justify-content:flex-end">
           <button id="d-cancel">Cancel</button>
@@ -1027,7 +1134,7 @@ function renderD(root) {
 
     <dialog id="d-helpdlg">
       <h2 style="margin:0 0 10px;font-size:16px">Workbench help</h2>
-      <p style="color:var(--muted);font-size:13px;margin:0 0 12px">Click a lane to audition it. Drag on any waveform to set the loop region; click to seek. On the stage waveform, carets above belong to A, carets below to B, diamonds on the waveform to both — hover or click one to find its ledger entry. Each stem track has solo (S) and mute (M), synchronized across lanes; the tracks show the candidate being auditioned. Blind mode hides the A/B lanes (switch with the buttons or <kbd>x</kbd>) and shuffles which file is which. The verdict stays editable after saving.</p>
+      <p style="color:var(--muted);font-size:13px;margin:0 0 12px">Click a lane row (SRC/A/B) to audition it. Drag on any waveform to set the loop region; click to seek. The view toggle switches waveform / loudness / spectral rendering everywhere. Carets above a waveform belong to A, below to B, diamonds on it to both — whole-track pins sit on the big waveform, stem pins on their stem track; hover or click one to find its ledger entry. Click a stem name to target new pins at that stem; with stems solo'd or muted, pins target the audible stems instead. Each stem track's S/M is synchronized across lanes and shows the candidate being auditioned. Blind mode hides the A/B lanes (switch with the buttons or <kbd>x</kbd>) and shuffles which file is which. The verdict stays editable after saving; confidence reads as color-coded stars.</p>
       <table>
         <tr><td><kbd>space</kbd></td><td>play / stop (see "stop returns" toggle)</td></tr>
         <tr><td><kbd>x</kbd></td><td>toggle A / B</td></tr>
@@ -1040,6 +1147,7 @@ function renderD(root) {
         <tr><td><kbd>enter</kbd></td><td>pin observation to the live lane</td></tr>
         <tr><td><kbd>shift+enter</kbd></td><td>pin observation to both lanes</td></tr>
         <tr><td><kbd>ctrl+z</kbd> / <kbd>ctrl+shift+z</kbd></td><td>undo / redo ledger changes</td></tr>
+        <tr><td><kbd>?</kbd></td><td>toggle this help</td></tr>
       </table>
       <div style="display:flex;justify-content:flex-end;margin-top:14px"><button id="d-helpclose">Close</button></div>
     </dialog>
@@ -1062,7 +1170,7 @@ function renderD(root) {
   redraw();
 
   /* --- lanes --- */
-  root.querySelectorAll(".lane").forEach(el => {
+  root.querySelectorAll(".lane-row").forEach(el => {
     const act = () => {
       const l = el.dataset.lane;
       engine.switchTo(l === "src" ? "src" : store.candOfLabel(l));
@@ -1070,6 +1178,11 @@ function renderD(root) {
     el.addEventListener("click", e => { if (e.target.tagName !== "CANVAS" && !e.target.closest("button")) act(); });
     el.addEventListener("keydown", e => { if ((e.key === "Enter" || e.key === " ") && e.target === el) { e.preventDefault(); act(); } });
   });
+  root.querySelectorAll("[data-selstem]").forEach(b => b.onclick = () => {
+    store.selectedStem = store.selectedStem === b.dataset.selstem ? null : b.dataset.selstem;
+    store.emit();
+  });
+  root.querySelectorAll("[data-view]").forEach(b => b.onclick = () => { store.view = b.dataset.view; store.emit(); });
 
   /* --- transport --- */
   root.querySelector("#d-play").onclick = () => engine.toggle();
@@ -1121,7 +1234,7 @@ function renderD(root) {
   const pinLabel = () => activeLabel() === "src" ? store.labelOf(engine.prevAB) : activeLabel();
   note.addEventListener("keydown", e => {
     e.stopPropagation();
-    if (e.key === "Enter") { store.addObs(note.value, e.shiftKey ? null : pinLabel()); note.value = ""; }
+    if (e.key === "Enter") { store.addObs(note.value, e.shiftKey ? null : pinLabel(), pinStems()); note.value = ""; }
     if (e.key === "Escape") note.blur();
   });
 
@@ -1137,7 +1250,7 @@ function renderD(root) {
     if (!p) return;
     pendingPref = p; paintPref();     // feedback B2a: select, don't close
   };
-  root.querySelector("#d-conf").oninput = e => root.querySelector("#d-confv").textContent = e.target.value;
+  root.querySelector("#d-conf").oninput = e => root.querySelector("#d-confv").innerHTML = starsFor(+e.target.value);
   root.querySelector("#d-cancel").onclick = () => dlg.close();
   root.querySelector("#d-save").onclick = () => {
     if (!pendingPref) return;
@@ -1172,7 +1285,7 @@ function renderD(root) {
     else if (e.key === "ArrowRight" || e.key === "=" || e.key === "+") engine.step(2);
     else if (e.key === "r") engine.toggleLoopActive();
     else if (e.key === "u") engine.clearLoop();
-    else if (e.key === "?") help.showModal();
+    else if (e.key === "?") { help.open ? help.close() : help.showModal(); }
   };
   document.addEventListener("keydown", keys);
 
