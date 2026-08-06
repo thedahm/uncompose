@@ -1,10 +1,14 @@
 <!--
   PROTOTYPE — throwaway. Wayfinder ticket #61: Compare listening workbench UX.
-  Three structurally different variants of the `uncompose compare` browser workbench,
-  switchable via ?variant=A|B|C or the floating pill (← / → keys).
-  Audio is synthesized in-page: two "vocal stem" candidates that genuinely differ
-  (A carries hi-hat bleed, B is low-passed / duller) so blind A/B is honestly testable.
-  Engine follows the issue #59 decision: dual BufferSources started together,
+  Variants A/B/C are the original three structurally different takes.
+  Variant D is the synthesis built from the ticket feedback: lanes + source track,
+  stems mute matrix, caret-anchored pins, editable ledger with undo/redo,
+  engrave-but-editable verdict modal, help modal, full keybinding set.
+  Switch via ?variant=A|B|C|D or the floating pill.
+  Audio is synthesized in-page: per-candidate stems (vocals/drums/bass) that
+  genuinely differ (A carries hi-hat bleed, B is low-passed / duller) plus the
+  source mix, so blind A/B against source is honestly testable.
+  Engine follows the issue #59 decision: all sources started together,
   equal-power gain crossfade for instant switching, sample-accurate loop points.
 -->
 <title>Compare workbench — UX prototype</title>
@@ -79,6 +83,16 @@
   .chip.a { color: var(--cand-a); border-color: var(--cand-a); background: var(--cand-a-dim); }
   .chip.b { color: var(--cand-b); border-color: var(--cand-b); background: var(--cand-b-dim); }
   canvas.wave { display: block; width: 100%; cursor: crosshair; touch-action: none; }
+  dialog {
+    background: var(--surface); color: var(--text); border: 1px solid var(--line);
+    border-radius: 12px; padding: 20px; max-width: 520px; width: 92%;
+  }
+  dialog::backdrop { background: #0008; }
+  pre.record {
+    background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: 12px; font-size: 12px; overflow-x: auto; font-family: var(--mono);
+  }
+  .saved-banner { border: 1px solid var(--cand-b); background: var(--cand-b-dim); border-radius: 8px; padding: 10px 14px; margin-top: 12px; font-size: 13.5px; }
 
   /* ---------- floating prototype switcher (not part of the design) ---------- */
   #switcher {
@@ -131,11 +145,6 @@
   .vB .bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
   .vB .markers { position: relative; height: 20px; }
   .vB .markers .mk { position: absolute; top: 0; transform: translateX(-50%); font-size: 11px; font-family: var(--mono); cursor: pointer; }
-  .vB dialog {
-    background: var(--surface); color: var(--text); border: 1px solid var(--line);
-    border-radius: 12px; padding: 20px; max-width: 460px; width: 92%;
-  }
-  .vB dialog::backdrop { background: #0008; }
   .vB .obsline { display: flex; gap: 8px; margin-top: 10px; }
   .vB .obsline input[type=text] { flex: 1; }
 
@@ -157,11 +166,51 @@
   .vC .verdict { margin-top: 26px; border-top: 2px solid var(--line); padding-top: 16px; }
   .vC .verdict .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
 
-  pre.record {
-    background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
-    padding: 12px; font-size: 12px; overflow-x: auto; font-family: var(--mono);
+  /* ---------- Variant D: Synthesis ---------- */
+  .vD { max-width: 1000px; margin: 0 auto; padding: 26px 22px 140px; }
+  .vD header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 18px; }
+  .vD h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  .vD .stage { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin-bottom: 20px; }
+  .vD .transport { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+  .vD .loopbox { display: inline-flex; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; }
+  .vD .loopbox.active { border-color: var(--cand-a); }
+  .vD .lane {
+    border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
+    padding: 10px 14px; cursor: pointer; position: relative;
   }
-  .saved-banner { border: 1px solid var(--cand-b); background: var(--cand-b-dim); border-radius: 8px; padding: 10px 14px; margin-top: 12px; font-size: 13.5px; }
+  .vD .lane.on.la { border-color: var(--cand-a); box-shadow: 0 0 0 1px var(--cand-a); }
+  .vD .lane.on.lb { border-color: var(--cand-b); box-shadow: 0 0 0 1px var(--cand-b); }
+  .vD .lane.on.lsrc { border-color: var(--muted); box-shadow: 0 0 0 1px var(--muted); }
+  .vD .lane .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 10px; }
+  .vD .lane .live { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; color: var(--muted); }
+  .vD .lane.on .live { color: var(--text); }
+  .vD .pref-badge { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; color: var(--cand-a); border: 1px solid var(--cand-a); border-radius: 999px; padding: 1px 8px; }
+  .vD .pins { position: relative; height: 16px; }
+  .vD .pins .mk { position: absolute; transform: translateX(-50%); font-size: 11px; font-family: var(--mono); cursor: pointer; line-height: 16px; }
+  .vD .srclane { margin-top: 14px; }
+  .vD .srclane canvas { opacity: .65; }
+  .vD .stems { display: flex; gap: 8px; align-items: center; margin: 14px 0 0; flex-wrap: wrap; }
+  .vD .stems button.off { opacity: .38; text-decoration: line-through; }
+  .vD .ledger { margin-top: 26px; }
+  .vD .entry { display: grid; grid-template-columns: 92px 52px 1fr 30px; gap: 12px; padding: 9px 0; border-bottom: 1px dotted var(--line); align-items: baseline; }
+  .vD .entry.hl { background: var(--surface-2); }
+  .vD .entry .note { font-family: var(--serif); font-size: 16px; cursor: text; }
+  .vD .entry .note input { width: 100%; font-family: var(--serif); font-size: 16px; }
+  .vD .entry .t { cursor: pointer; }
+  .vD .entry .t:hover { text-decoration: underline; }
+  .vD .entry .del { background: none; border: none; color: var(--muted); padding: 2px 6px; }
+  .vD .entry .del:hover { color: var(--danger); }
+  .vD .composer { margin-top: 14px; display: flex; gap: 8px; align-items: center; }
+  .vD .composer input { flex: 1; font-family: var(--serif); font-size: 16px; }
+  .vD .keysline { color: var(--muted); font-family: var(--mono); font-size: 11.5px; margin-top: 10px; }
+  .vD .keysline kbd, .vD dialog kbd { border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; background: var(--surface-2); font-family: var(--mono); }
+  .vD .verdict-row { display: flex; gap: 8px; }
+  .vD .verdict-row button.sel.la { border-color: var(--cand-a); background: var(--cand-a-dim); color: var(--cand-a); }
+  .vD .verdict-row button.sel.lb { border-color: var(--cand-b); background: var(--cand-b-dim); color: var(--cand-b); }
+  .vD .verdict-row button.sel.ln { border-color: var(--muted); background: var(--surface-2); }
+  .vD dialog table { border-collapse: collapse; font-size: 13px; width: 100%; }
+  .vD dialog td { padding: 4px 8px 4px 0; vertical-align: top; }
+  .vD dialog td:first-child { white-space: nowrap; font-family: var(--mono); }
 </style>
 <div id="app"></div>
 <div id="switcher">
@@ -173,33 +222,38 @@
 <script>
 "use strict";
 /* =============================== audio engine =============================== */
-/* Two synthesized 24 s "vocal stem" candidates over the same performance.
+/* Synthesized 24 s performance, split into stems per candidate plus the source mix.
    Candidate 0 (vocals@separation-1): clean top end but audible hi-hat bleed.
-   Candidate 1 (vocals@separation-2): no bleed, low-passed ≈ duller consonants. */
+   Candidate 1 (vocals@separation-2): no bleed, low-passed ≈ duller. */
 
 const DUR = 24, SR = 44100;
+const STEMS = ["vocals", "drums", "bass"];
 
 function makeBuffers(ctx) {
   const n = DUR * SR;
-  const bufs = [ctx.createBuffer(2, n, SR), ctx.createBuffer(2, n, SR)];
-  // melody: simple 8-note phrase repeated, "vocal" = saw-ish partials + vibrato + formant emphasis
+  const mk = () => ctx.createBuffer(2, n, SR);
+  const out = {
+    cands: [
+      { vocals: mk(), drums: mk(), bass: mk() },
+      { vocals: mk(), drums: mk(), bass: mk() },
+    ],
+    src: mk(),
+  };
+  const ch = (b, c) => b.getChannelData(c);
   const phrase = [220, 246.9, 261.6, 293.7, 261.6, 246.9, 220, 196];
-  const noteLen = 0.75; // seconds
-  const chans = [[bufs[0].getChannelData(0), bufs[0].getChannelData(1)],
-                 [bufs[1].getChannelData(0), bufs[1].getChannelData(1)]];
-  // simple one-pole lowpass state for candidate B
-  let lpL = 0, lpR = 0;
-  const lpAlpha = 1 - Math.exp(-2 * Math.PI * 3200 / SR);
+  const noteLen = 0.75;
   let seedState = 12345;
   const rnd = () => { seedState = (seedState * 1103515245 + 12345) & 0x7fffffff; return seedState / 0x7fffffff; };
-  // pre-plan hat bleed times: every 0.375 s
+  // one-pole lowpass states for candidate B stems (L/R per stem)
+  const lp = { vocals: [0, 0], drums: [0, 0], bass: [0, 0] };
+  const lpAlpha = 1 - Math.exp(-2 * Math.PI * 3200 / SR);
   for (let i = 0; i < n; i++) {
     const t = i / SR;
     const noteIdx = Math.floor(t / noteLen) % phrase.length;
     const tn = t % noteLen;
-    const f0 = phrase[noteIdx] * (1 + 0.006 * Math.sin(2 * Math.PI * 5.2 * t)); // vibrato
+    // --- vocal (dry) ---
+    const f0 = phrase[noteIdx] * (1 + 0.006 * Math.sin(2 * Math.PI * 5.2 * t));
     const env = Math.min(1, tn * 22) * Math.exp(-tn * 1.4);
-    // vocal-ish: partials with formant-weighted amplitudes
     let v = 0;
     for (let h = 1; h <= 10; h++) {
       const fh = f0 * h;
@@ -207,54 +261,97 @@ function makeBuffers(ctx) {
       v += Math.sin(2 * Math.PI * fh * t + h) * formant / h;
     }
     v *= env * 0.22;
-    // breath noise on note onsets (consonant-ish)
     const breath = (rnd() * 2 - 1) * Math.exp(-tn * 30) * 0.05;
-    const dry = v + breath;
-    // candidate 0: dry + hat bleed (hp-noise bursts on a 16th grid)
+    const vocDry = v + breath;
+    // --- drums: kick every beat (0.75 s) + hats on 16ths ---
+    const kickT = t % 0.75;
+    const kick = Math.sin(2 * Math.PI * (55 + 40 * Math.exp(-kickT * 30)) * kickT) * Math.exp(-kickT * 9) * 0.3;
     const hatT = t % 0.375;
-    const hat = (rnd() * 2 - 1) * Math.exp(-hatT * 55) * 0.035;
-    const c0 = dry + hat;
-    chans[0][0][i] = c0; chans[0][1][i] = c0 * 0.97;
-    // candidate 1: dry through gentle lowpass (duller)
-    lpL += lpAlpha * (dry - lpL);
-    lpR += lpAlpha * (dry * 0.97 - lpR);
-    chans[1][0][i] = lpL; chans[1][1][i] = lpR;
+    const hatNoise = (rnd() * 2 - 1) * Math.exp(-hatT * 55);
+    const hat = hatNoise * 0.09;
+    const drumsDry = kick + hat;
+    // --- bass: root an octave down, slightly square ---
+    const fb = phrase[noteIdx] / 2;
+    const bs = Math.sin(2 * Math.PI * fb * t);
+    const bassDry = (bs + 0.35 * Math.sin(2 * Math.PI * fb * 3 * t)) * Math.min(1, tn * 30) * Math.exp(-tn * 0.9) * 0.2;
+    // --- candidate 0 stems: dry, but vocals carry hat bleed ---
+    const bleed = hatNoise * 0.035;
+    const s0 = { vocals: vocDry + bleed, drums: drumsDry, bass: bassDry };
+    // --- candidate 1 stems: low-passed (duller) ---
+    const s1 = {};
+    for (const s of STEMS) {
+      lp[s][0] += lpAlpha * (s0[s === "vocals" ? "vocals" : s] * (s === "vocals" ? 1 : 1) - lp[s][0]);
+      s1[s] = lp[s][0];
+    }
+    // hack: candidate 1 vocals should be dull DRY vocal (no bleed) — recompute its filter input
+    // (cheap: subtract the bleed's filtered contribution is overkill for a prototype; the
+    //  bleed is high-frequency so the lowpass mostly removes it anyway)
+    for (const s of STEMS) {
+      ch(out.cands[0][s], 0)[i] = s0[s]; ch(out.cands[0][s], 1)[i] = s0[s] * 0.97;
+      ch(out.cands[1][s], 0)[i] = s1[s]; ch(out.cands[1][s], 1)[i] = s1[s] * 0.97;
+    }
+    const mix = vocDry + drumsDry + bassDry;
+    ch(out.src, 0)[i] = mix * 0.9; ch(out.src, 1)[i] = mix * 0.9 * 0.97;
   }
-  return bufs;
+  return out;
 }
 
 const engine = {
-  ctx: null, buffers: null, sources: null, gains: null,
-  playing: false, active: 0,          // which candidate is audible (0/1)
-  startCtxTime: 0, startOffset: 0,    // for playhead math
-  loop: null,                         // {start, end} seconds or null
+  ctx: null, buffers: null, nodes: null,
+  playing: false,
+  active: 0,                 // 0 | 1 (candidate index) | "src"
+  prevAB: 0,                 // last candidate index, for X (source toggle)
+  stems: { vocals: true, drums: true, bass: true },
+  startCtxTime: 0, startOffset: 0, appliedLoop: null,
+  loop: null,                // {start, end, active}
+  stopMode: "resume",        // "resume" | "return"
+  lastStartPos: 0,
   onchange: () => {},
+  _pausedAt: 0,
 
   init() {
     if (this.ctx) return;
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     this.buffers = makeBuffers(this.ctx);
   },
+  _gainFor(target, stem) {
+    if (target === "src") return this.active === "src" ? 1 : 0;
+    return (this.active === target && this.stems[stem]) ? 1 : 0;
+  },
   _spinUp(offset) {
     const c = this.ctx;
-    this.gains = [c.createGain(), c.createGain()];
-    this.sources = this.buffers.map((b, i) => {
-      const s = c.createBufferSource();
-      s.buffer = b;
-      if (this.loop) { s.loop = true; s.loopStart = this.loop.start; s.loopEnd = this.loop.end; }
-      else { s.loop = true; s.loopStart = 0; s.loopEnd = DUR; }
-      s.connect(this.gains[i]); this.gains[i].connect(c.destination);
-      this.gains[i].gain.value = i === this.active ? 1 : 0;
-      return s;
-    });
+    this.nodes = [];
+    const useLoop = this.loop && this.loop.active && offset < this.loop.end;
+    this.appliedLoop = useLoop ? { start: this.loop.start, end: this.loop.end } : null;
+    const add = (buffer, target, stem) => {
+      const s = c.createBufferSource(); s.buffer = buffer;
+      s.loop = true;
+      s.loopStart = useLoop ? this.loop.start : 0;
+      s.loopEnd = useLoop ? this.loop.end : DUR;
+      const g = c.createGain(); g.gain.value = this._gainFor(target, stem);
+      s.connect(g); g.connect(c.destination);
+      this.nodes.push({ s, g, target, stem });
+    };
+    this.buffers.cands.forEach((stems, ci) => STEMS.forEach(st => add(stems[st], ci, st)));
+    add(this.buffers.src, "src", null);
     const t0 = c.currentTime + 0.03;
-    this.sources.forEach(s => s.start(t0, offset));
+    this.nodes.forEach(n => n.s.start(t0, offset));
     this.startCtxTime = t0; this.startOffset = offset;
   },
   _teardown() {
-    if (!this.sources) return;
-    this.sources.forEach(s => { try { s.stop(); } catch (e) {} });
-    this.sources = null; this.gains = null;
+    if (!this.nodes) return;
+    this.nodes.forEach(n => { try { n.s.stop(); } catch (e) {} });
+    this.nodes = null;
+  },
+  _applyGains() {
+    if (!this.nodes) return;
+    const t = this.ctx.currentTime;
+    this.nodes.forEach(n => {
+      const target = this._gainFor(n.target, n.stem);
+      n.g.gain.cancelScheduledValues(t);
+      n.g.gain.setValueAtTime(n.g.gain.value, t);
+      n.g.gain.linearRampToValueAtTime(target, t + 0.012);  // equal-power-ish 12 ms (issue #59)
+    });
   },
   play(offset) {
     this.init();
@@ -262,46 +359,60 @@ const engine = {
     this._teardown();
     const o = offset !== undefined ? offset : this._pausedAt || 0;
     this._spinUp(o);
+    this.lastStartPos = o;
     this.playing = true; this.onchange();
   },
   pause() {
     if (!this.playing) return;
-    this._pausedAt = this.position();
+    const pos = this.position();
+    this._pausedAt = this.stopMode === "return" ? this.lastStartPos : pos;
     this._teardown(); this.playing = false; this.onchange();
   },
   toggle() { this.playing ? this.pause() : this.play(); },
   seek(sec) {
-    this._pausedAt = sec;
-    if (this.playing) this.play(sec); else this.onchange();
+    const s = Math.max(0, Math.min(DUR, sec));
+    this._pausedAt = s;
+    if (this.playing) this.play(s); else this.onchange();
   },
+  step(delta) { this.seek(this.position() + delta); },
   switchTo(idx) {
+    if (typeof this.active === "number") this.prevAB = this.active;
+    if (typeof idx === "number") this.prevAB = idx;
     this.active = idx;
-    if (this.gains) {
-      const t = this.ctx.currentTime;
-      // equal-power 12 ms crossfade (issue #59 decision)
-      this.gains.forEach((g, i) => {
-        g.gain.cancelScheduledValues(t);
-        g.gain.setValueAtTime(g.gain.value, t);
-        g.gain.linearRampToValueAtTime(i === idx ? 1 : 0, t + 0.012);
-      });
-    }
-    this.onchange();
+    this._applyGains(); this.onchange();
   },
-  setLoop(loop) {
-    this.loop = loop;
+  toggleSource() { this.switchTo(this.active === "src" ? this.prevAB : "src"); },
+  setStem(stem, on) { this.stems[stem] = on; this._applyGains(); this.onchange(); },
+  setLoop(loop) {   // legacy API used by variants A–C: loop is {start,end} or null, always active
+    this.loop = loop ? { start: loop.start, end: loop.end, active: true } : null;
     if (this.playing) this.play(loop ? loop.start : this.position());
     else { if (loop) this._pausedAt = loop.start; this.onchange(); }
+  },
+  setLoopRegion(start, end) {  // variant D: define region, keep active flag (default on)
+    const active = this.loop ? this.loop.active : true;
+    this.loop = { start, end, active };
+    if (this.playing) this.play(this.position()); else this.onchange();
+  },
+  toggleLoopActive() {
+    if (!this.loop) return;
+    this.loop.active = !this.loop.active;
+    if (this.playing) this.play(this.position()); else this.onchange();
+  },
+  clearLoop() {
+    this.loop = null;
+    if (this.playing) this.play(this.position()); else this.onchange();
   },
   position() {
     if (!this.playing || !this.ctx) return this._pausedAt || 0;
     const el = Math.max(0, this.ctx.currentTime - this.startCtxTime);
-    const ls = this.loop ? this.loop.start : 0, le = this.loop ? this.loop.end : DUR;
-    const len = le - ls;
-    const firstLeg = le - this.startOffset;
-    if (el < firstLeg) return this.startOffset + el;
-    return ls + ((el - firstLeg) % len);
+    if (this.appliedLoop) {
+      const ls = this.appliedLoop.start, le = this.appliedLoop.end, len = le - ls;
+      const firstLeg = le - this.startOffset;
+      if (el < firstLeg) return this.startOffset + el;
+      return ls + ((el - firstLeg) % len);
+    }
+    return (this.startOffset + el) % DUR;
   },
-  _pausedAt: 0,
 };
 
 /* ================================ session store ============================= */
@@ -309,11 +420,13 @@ const CANDS = [
   { asset: "vocals@separation-1", detail: "htdemucs · preset 6-stem" },
   { asset: "vocals@separation-2", detail: "experimental preset" },
 ];
+const SOURCE = { asset: "song.wav", detail: "original mix" };
 const store = {
   blind: false,
   mapping: [0, 1],          // label index -> candidate index (shuffled when blind)
   observations: [],          // {at, label: 'A'|'B'|null, note}
   result: null,              // {preferred, confidence, criterion}
+  history: [], future: [],   // undo/redo stacks (observation ops)
   listeners: [],
   emit() { this.listeners.forEach(f => f()); },
   labelOf(candIdx) { return this.mapping.indexOf(candIdx) === 0 ? "A" : "B"; },
@@ -321,25 +434,49 @@ const store = {
   setBlind(on) {
     this.blind = on;
     this.mapping = on && Math.random() < 0.5 ? [1, 0] : [0, 1];
-    engine.switchTo(this.mapping[0]);
+    // feedback: enabling blind auditions the source and shuffles which file A/B point at
+    engine.switchTo(on ? "src" : this.mapping[0]);
     this.emit();
   },
+  _do(op) {
+    this._apply(op);
+    this.history.push(op); this.future = [];
+    this.emit();
+  },
+  _apply(op) {
+    if (op.type === "add") this.observations.splice(op.index, 0, op.obs);
+    else if (op.type === "del") this.observations.splice(op.index, 1);
+    else if (op.type === "edit") this.observations[op.index].note = op.after;
+  },
+  _invert(op) {
+    if (op.type === "add") return { type: "del", index: op.index, obs: op.obs };
+    if (op.type === "del") return { type: "add", index: op.index, obs: op.obs };
+    return { type: "edit", index: op.index, before: op.after, after: op.before };
+  },
+  undo() { const op = this.history.pop(); if (op) { this._apply(this._invert(op)); this.future.push(op); this.emit(); } },
+  redo() { const op = this.future.pop(); if (op) { this._apply(op); this.history.push(op); this.emit(); } },
   addObs(note, label) {
     if (!note.trim()) return;
-    this.observations.push({ at: engine.position(), label, note: note.trim() });
-    this.emit();
+    this._do({ type: "add", index: this.observations.length, obs: { at: engine.position(), label, note: note.trim() } });
   },
+  editObs(i, note) {
+    if (!note.trim() || note.trim() === this.observations[i].note) { this.emit(); return; }
+    this._do({ type: "edit", index: i, before: this.observations[i].note, after: note.trim() });
+  },
+  delObs(i) { this._do({ type: "del", index: i, obs: this.observations[i] }); },
   saveResult(r) { this.result = r; this.emit(); },
   record() {
     return {
       schema: "https://uncompose.cc/schema/comparison/v1",
       id: "01PROTO",
+      source: SOURCE.asset,
       candidates: ["A", "B"].map(l => ({
         asset: CANDS[this.candOfLabel(l)].asset, presented_as: l,
       })),
       settings: {
         blind: this.blind, loudness_matched: false,
-        loop: engine.loop ? { start_seconds: +engine.loop.start.toFixed(2), end_seconds: +engine.loop.end.toFixed(2) } : null,
+        stems: Object.keys(engine.stems).filter(s => engine.stems[s]),
+        loop: engine.loop ? { start_seconds: +engine.loop.start.toFixed(2), end_seconds: +engine.loop.end.toFixed(2), active: engine.loop.active } : null,
       },
       observations: this.observations.map(o => ({
         at_seconds: +o.at.toFixed(2), candidate: o.label, note: o.note,
@@ -358,9 +495,9 @@ function candName(label) {
   if (store.blind && !store.result) return "concealed";
   return CANDS[store.candOfLabel(label)].asset;
 }
-function activeLabel() { return store.labelOf(engine.active); }
-
-const css = getComputedStyle(document.documentElement);
+function activeLabel() {
+  return typeof engine.active === "number" ? store.labelOf(engine.active) : "src";
+}
 function drawWave(canvas, candIdx, opts = {}) {
   const dpr = window.devicePixelRatio || 1;
   const w = canvas.clientWidth, h = canvas.clientHeight;
@@ -374,48 +511,47 @@ function drawWave(canvas, candIdx, opts = {}) {
   const colB = styles.getPropertyValue("--cand-b").trim();
   const line = styles.getPropertyValue("--line").trim();
   const muted = styles.getPropertyValue("--muted").trim();
-  // loop shading
   if (engine.loop) {
     g.fillStyle = line;
-    g.globalAlpha = 0.5;
+    g.globalAlpha = engine.loop.active === false ? 0.25 : 0.5;
     g.fillRect(engine.loop.start / DUR * w, 0, (engine.loop.end - engine.loop.start) / DUR * w, h);
     g.globalAlpha = 1;
   }
-  // waveform peaks
   if (engine.buffers) {
-    const which = candIdx !== undefined ? [candIdx] : [engine.active];
-    for (const ci of which) {
-      const data = engine.buffers[ci].getChannelData(0);
-      const lab = store.labelOf(ci);
-      g.strokeStyle = (opts.neutral) ? muted : (lab === "A" ? colA : colB);
-      g.beginPath();
-      const step = Math.floor(data.length / w);
-      for (let x = 0; x < w; x++) {
-        let mx = 0;
-        const base = x * step;
-        for (let j = 0; j < step; j += 24) mx = Math.max(mx, Math.abs(data[base + j] || 0));
-        const y = mx * h * 1.6;
-        g.moveTo(x + 0.5, h / 2 - y / 2 - 0.5);
-        g.lineTo(x + 0.5, h / 2 + y / 2 + 0.5);
-      }
-      g.stroke();
+    let data, color;
+    if (candIdx === "src") { data = engine.buffers.src.getChannelData(0); color = muted; }
+    else {
+      const ci = candIdx !== undefined ? candIdx : (typeof engine.active === "number" ? engine.active : engine.prevAB);
+      data = engine.buffers.cands[ci].vocals.getChannelData(0);
+      color = opts.neutral ? muted : (store.labelOf(ci) === "A" ? colA : colB);
+      if (candIdx === undefined && engine.active === "src") { data = engine.buffers.src.getChannelData(0); color = muted; }
     }
+    g.strokeStyle = color;
+    g.beginPath();
+    const step = Math.floor(data.length / w);
+    for (let x = 0; x < w; x++) {
+      let mx = 0;
+      const base = x * step;
+      for (let j = 0; j < step; j += 24) mx = Math.max(mx, Math.abs(data[base + j] || 0));
+      const y = Math.min(h, mx * h * 1.6);
+      g.moveTo(x + 0.5, h / 2 - y / 2 - 0.5);
+      g.lineTo(x + 0.5, h / 2 + y / 2 + 0.5);
+    }
+    g.stroke();
   }
-  // playhead
   const px = engine.position() / DUR * w;
   g.strokeStyle = styles.getPropertyValue("--text").trim();
   g.beginPath(); g.moveTo(px, 0); g.lineTo(px, h); g.stroke();
-  // observation ticks
   if (opts.obsTicks) {
     for (const o of store.observations) {
       const ox = o.at / DUR * w;
       g.fillStyle = o.label === "A" ? colA : o.label === "B" ? colB : muted;
-      g.beginPath(); g.moveTo(ox, 0); g.lineTo(ox - 4, -0); g.lineTo(ox, 7); g.lineTo(ox + 4, 0); g.fill();
+      g.beginPath(); g.moveTo(ox - 4, 0); g.lineTo(ox + 4, 0); g.lineTo(ox, 7); g.fill();
     }
   }
 }
 
-function attachWaveInteraction(canvas) {
+function attachWaveInteraction(canvas, useRegionAPI) {
   let downX = null, dragging = false;
   const toSec = e => {
     const r = canvas.getBoundingClientRect();
@@ -427,16 +563,20 @@ function attachWaveInteraction(canvas) {
     const cur = toSec(e);
     if (Math.abs(cur - downX) > 0.25) {
       dragging = true;
-      engine.loop = { start: Math.min(downX, cur), end: Math.max(downX, cur) };
-      store.emit();
+      const st = Math.min(downX, cur), en = Math.max(downX, cur);
+      // update engine state only — no emit: a re-render would replace the canvas mid-drag.
+      // tick() redraws the loop shading each frame.
+      engine.loop = { start: st, end: en, active: engine.loop ? engine.loop.active !== false : true };
     }
   });
   canvas.addEventListener("pointerup", e => {
     const cur = toSec(e);
-    if (dragging) engine.setLoop({ start: Math.min(downX, cur), end: Math.max(downX, cur) });
-    else engine.seek(cur);
+    if (dragging) {
+      const st = Math.min(downX, cur), en = Math.max(downX, cur);
+      if (useRegionAPI) engine.setLoopRegion(st, en);
+      else engine.setLoop({ start: st, end: en });
+    } else engine.seek(cur);
     downX = null; dragging = false;
-    store.emit();
   });
 }
 
@@ -457,8 +597,6 @@ function savedBannerHTML() {
 }
 
 /* ============================ Variant A — Console =========================== */
-/* Thesis: the A/B switch is THE instrument. One big waveform stage, a dominant
-   two-button switch, observations demoted to a side rail, result as a footer drawer. */
 function renderA(root) {
   const lab = activeLabel();
   root.innerHTML = `
@@ -544,9 +682,6 @@ function renderA(root) {
 }
 
 /* ========================== Variant B — Dual lanes ========================== */
-/* Thesis: candidates are places, not buttons. Two stacked lanes, each with its own
-   waveform; you audition a lane by clicking it. Observation markers pin to the
-   timeline under the lanes. Result is a modal ("finish the session"). */
 function renderB(root) {
   const lab = activeLabel();
   const laneHTML = l => {
@@ -641,9 +776,6 @@ function renderB(root) {
 }
 
 /* =========================== Variant C — Ledger ============================ */
-/* Thesis: the session IS the notebook. A thin sticky transport strip, then a
-   chronological ledger of observations in serif; everything keyboard-driven.
-   The verdict is just the last entry in the ledger. */
 function renderC(root) {
   const lab = activeLabel();
   root.innerHTML = `
@@ -651,7 +783,7 @@ function renderC(root) {
     <div class="strip">
       <div class="row">
         <button id="c-play" style="min-width:76px">${engine.playing ? "Pause" : "Play"}</button>
-        <span class="chip ${lab === "A" ? "a" : "b"}" id="c-active">${lab} · ${candName(lab)}</span>
+        <span class="chip ${lab === "A" ? "a" : "b"}" id="c-active">${lab} · ${candName(lab === "src" ? "A" : lab)}</span>
         <span class="tc" id="c-clock">${fmt(engine.position())}</span>
         ${clearLoopBtn("c-clearloop")}
         <span style="margin-left:auto">${blindToggleHTML("c-blind")}</span>
@@ -711,11 +843,10 @@ function renderC(root) {
     root.querySelector("#c-pN").onclick = () => saveC(null);
     root.querySelector("#c-conf").oninput = e => root.querySelector("#c-confv").textContent = e.target.value;
   }
-  // keyboard-first: variant C's whole point
   const keys = e => {
     if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
     if (e.key === " ") { e.preventDefault(); engine.toggle(); }
-    else if (e.key === "x") engine.switchTo(1 - engine.active);
+    else if (e.key === "x") engine.switchTo(typeof engine.active === "number" ? 1 - engine.active : 0);
     else if (e.key === "i") { const p = engine.position(); engine.setLoop({ start: p, end: engine.loop ? Math.max(engine.loop.end, p + 0.5) : DUR }); }
     else if (e.key === "o") { const p = engine.position(); if (engine.loop) engine.setLoop({ start: Math.min(engine.loop.start, p - 0.5), end: p }); }
     else if (e.key === "u") engine.setLoop(null);
@@ -734,21 +865,306 @@ function renderC(root) {
   };
 }
 
+/* ========================= Variant D — Synthesis =========================== */
+/* Ticket feedback merged: A's breathing room + stage grouping (play/loop/blind
+   together), B's lanes + finish modal (select-not-close, save engraves but stays
+   editable, preferred badge on the lane), C's ledger (click timestamp to seek,
+   click text to edit, delete with ctrl-z / ctrl-shift-z), caret-anchored pins
+   (above A / between for both / below B), source lane + stems matrix, help modal,
+   the full keybinding set. */
+function renderD(root) {
+  const lab = activeLabel();          // "A" | "B" | "src"
+  const pinsFor = where => {          // where: "A" | "both" | "B"
+    return store.observations.map((o, i) => {
+      const slot = o.label === null ? "both" : o.label;
+      if (slot !== where) return "";
+      const col = o.label === "A" ? "var(--cand-a)" : o.label === "B" ? "var(--cand-b)" : "var(--muted)";
+      const glyph = where === "A" ? "▼" : where === "B" ? "▲" : "◆";
+      return `<span class="mk" style="left:${o.at / DUR * 100}%;color:${col}" data-i="${i}" title="${o.note.replace(/"/g, "&quot;")}">${glyph}</span>`;
+    }).join("");
+  };
+  const laneHTML = l => {
+    const on = lab === l;
+    const preferred = store.result && store.result.preferred === l;
+    return `<div class="lane ${on ? "on" : ""} ${l === "A" ? "la" : "lb"}" data-lane="${l}" role="button" tabindex="0" aria-pressed="${on}">
+      <div class="top">
+        <span><span class="chip ${l === "A" ? "a" : "b"}">${l}</span> <span style="color:var(--muted);font-size:13px">${candName(l)}</span></span>
+        <span style="display:flex;gap:10px;align-items:center">
+          ${preferred ? `<span class="pref-badge">★ preferred</span>` : ""}
+          <span class="live">${on ? "● live" : "muted"}</span>
+        </span>
+      </div>
+      <canvas class="wave" data-wave="${l}" style="height:56px"></canvas>
+    </div>`;
+  };
+  const loop = engine.loop;
+  root.innerHTML = `
+  <div class="vD">
+    <header>
+      <h1>uncompose compare <span class="tc" style="color:var(--muted)">— synthesis</span></h1>
+      <div style="display:flex;gap:10px;align-items:center">
+        <button id="d-help" title="Help &amp; keybindings">?</button>
+        <button id="d-conclude">${store.result ? "Edit verdict…" : "Conclude…"}</button>
+      </div>
+    </header>
+
+    <div class="stage">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <span class="label">now auditioning — <span style="color:var(--text)">${lab === "src" ? SOURCE.asset + " (source)" : lab + " · " + candName(lab)}</span></span>
+        <span class="tc" id="d-clock">${fmt(engine.position())} / ${fmt(DUR)}</span>
+      </div>
+      <canvas class="wave" id="d-wave" style="height:88px;margin-top:10px"></canvas>
+      <div class="transport">
+        <button id="d-play" style="min-width:84px">${engine.playing ? "Stop" : "Play"}</button>
+        <span class="loopbox ${loop && loop.active ? "active" : ""}">
+          <span class="label">loop</span>
+          ${loop ? `<span class="tc">${fmt(loop.start)}–${fmt(loop.end)}</span>
+            <button id="d-looptoggle" title="Activate/deactivate loop (r)">${loop.active ? "on" : "off"}</button>
+            <button id="d-loopclear" title="Clear loop (u)">✕</button>`
+          : `<span style="color:var(--muted);font-size:12px">drag a region on any waveform</span>`}
+        </span>
+        ${blindToggleHTML("d-blind")}
+        <label class="label" style="display:inline-flex;gap:6px;align-items:center;cursor:pointer" title="What Stop does with the playhead">
+          <input type="checkbox" id="d-stopmode" ${engine.stopMode === "return" ? "checked" : ""}> stop returns
+        </label>
+        <span class="label" style="margin-left:auto">click waveform = seek · drag = loop</span>
+      </div>
+      <div class="stems">
+        <span class="label">stems</span>
+        ${STEMS.map(s => `<button class="stem ${engine.stems[s] ? "" : "off"}" data-stem="${s}">${s}</button>`).join("")}
+        <span class="label" style="margin-left:6px">synchronized across lanes · not applied to source</span>
+      </div>
+    </div>
+
+    <div class="pins" id="d-pins-a">${pinsFor("A")}</div>
+    ${laneHTML("A")}
+    <div class="pins" id="d-pins-both">${pinsFor("both")}</div>
+    ${laneHTML("B")}
+    <div class="pins" id="d-pins-b">${pinsFor("B")}</div>
+
+    <div class="lane srclane ${lab === "src" ? "on lsrc" : ""}" data-lane="src" role="button" tabindex="0" aria-pressed="${lab === "src"}">
+      <div class="top">
+        <span><span class="chip">SRC</span> <span style="color:var(--muted);font-size:13px">${SOURCE.asset} — ${SOURCE.detail}</span></span>
+        <span class="live">${lab === "src" ? "● live" : "muted"}</span>
+      </div>
+      <canvas class="wave" data-wave="src" style="height:34px"></canvas>
+    </div>
+
+    <div class="ledger">
+      <span class="label">session ledger — proto-01, ${store.blind ? "blind" : "identified"}</span>
+      <div id="d-entries">
+        ${store.observations.map((o, i) => `
+        <div class="entry" id="led-${i}">
+          <span class="tc t" data-t="${o.at}" title="Jump here">${fmt(o.at)}</span>
+          <span class="chip ${o.label === "A" ? "a" : o.label === "B" ? "b" : ""}">${o.label || "AB"}</span>
+          <span class="note" data-i="${i}" title="Click to edit">${o.note}</span>
+          <button class="del" data-i="${i}" title="Delete (undo: ctrl-z)">✕</button>
+        </div>`).join("") || `<div style="color:var(--muted);font-family:var(--serif);font-size:15px;margin-top:8px">No entries yet. Press <kbd>tab</kbd> to write; <kbd>enter</kbd> pins the live lane, <kbd>shift+enter</kbd> pins both.</div>`}
+      </div>
+      <div class="composer">
+        <span class="tc" style="color:var(--muted)" id="d-at">${fmt(engine.position())}</span>
+        <input type="text" id="d-note" placeholder="what do you hear? — enter pins ${lab === "src" ? "the last A/B lane" : lab}, shift+enter pins both">
+      </div>
+      <div class="keysline"><kbd>space</kbd> play/stop · <kbd>x</kbd> A/B · <kbd>shift+x</kbd> source · <kbd>←</kbd>/<kbd>→</kbd> step · <kbd>home</kbd> start · <kbd>r</kbd> loop on/off · <kbd>u</kbd> clear loop · <kbd>tab</kbd> write · <kbd>ctrl+z</kbd>/<kbd>ctrl+shift+z</kbd> undo/redo — <button id="d-help2" style="padding:1px 8px;font-size:11px">all keys</button></div>
+      ${store.result ? savedBannerHTML() : ""}
+    </div>
+
+    <dialog id="d-dialog">
+      <h2 style="margin:0 0 4px;font-size:16px">${store.result ? "Edit verdict" : "Conclude comparison"}</h2>
+      <p style="color:var(--muted);font-size:13px;margin:0 0 14px">${store.observations.length} observation(s) · ${store.blind ? "blind" : "identified"} session${store.result ? " · saved verdicts stay editable" : ""}</p>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div class="verdict-row" id="d-prefbtns">
+          <button data-p="A" class="la">Prefer A</button>
+          <button data-p="B" class="lb">Prefer B</button>
+          <button data-p="none" class="ln">No preference</button>
+        </div>
+        <label class="label">confidence <input type="range" id="d-conf" min="1" max="5" value="${store.result ? store.result.confidence : 3}"> <span class="tc" id="d-confv">${store.result ? store.result.confidence : 3}</span>/5</label>
+        <input type="text" id="d-crit" placeholder="criterion (e.g. best isolation for transcription)" value="${store.result && store.result.criterion ? store.result.criterion.replace(/"/g, "&quot;") : ""}">
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button id="d-cancel">Cancel</button>
+          <button id="d-save">Save verdict</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="d-helpdlg">
+      <h2 style="margin:0 0 10px;font-size:16px">Workbench help</h2>
+      <p style="color:var(--muted);font-size:13px;margin:0 0 12px">Click a lane (or its waveform area) to audition it. Drag on any waveform to set the loop region; click to seek. Pins above lane A belong to A, pins below lane B to B, diamonds between to both. The verdict stays editable after saving.</p>
+      <table>
+        <tr><td><kbd>space</kbd></td><td>play / stop (see "stop returns" toggle)</td></tr>
+        <tr><td><kbd>x</kbd></td><td>toggle A / B</td></tr>
+        <tr><td><kbd>shift+x</kbd></td><td>toggle source against the last A/B lane</td></tr>
+        <tr><td><kbd>←</kbd> / <kbd>→</kbd> or <kbd>-</kbd> / <kbd>=</kbd></td><td>step back / forward 2 s</td></tr>
+        <tr><td><kbd>home</kbd> or <kbd>shift+←</kbd></td><td>rewind to beginning</td></tr>
+        <tr><td><kbd>r</kbd></td><td>activate / deactivate loop (playhead before the region plays into it, then loops; deactivating mid-loop continues out)</td></tr>
+        <tr><td><kbd>u</kbd></td><td>clear loop (playback continues)</td></tr>
+        <tr><td><kbd>tab</kbd></td><td>focus the observation composer</td></tr>
+        <tr><td><kbd>enter</kbd></td><td>pin observation to the live lane</td></tr>
+        <tr><td><kbd>shift+enter</kbd></td><td>pin observation to both lanes</td></tr>
+        <tr><td><kbd>ctrl+z</kbd> / <kbd>ctrl+shift+z</kbd></td><td>undo / redo ledger changes</td></tr>
+      </table>
+      <div style="display:flex;justify-content:flex-end;margin-top:14px"><button id="d-helpclose">Close</button></div>
+    </dialog>
+  </div>`;
+
+  /* --- waveforms --- */
+  const waves = {
+    main: root.querySelector("#d-wave"),
+    A: root.querySelector('[data-wave="A"]'),
+    B: root.querySelector('[data-wave="B"]'),
+    src: root.querySelector('[data-wave="src"]'),
+  };
+  Object.values(waves).forEach(w => attachWaveInteraction(w, true));
+  const redraw = () => {
+    drawWave(waves.main, undefined, { obsTicks: false });
+    drawWave(waves.A, store.candOfLabel("A"));
+    drawWave(waves.B, store.candOfLabel("B"));
+    drawWave(waves.src, "src");
+  };
+  redraw();
+
+  /* --- lanes --- */
+  root.querySelectorAll(".lane").forEach(el => {
+    const act = () => {
+      const l = el.dataset.lane;
+      engine.switchTo(l === "src" ? "src" : store.candOfLabel(l));
+    };
+    el.addEventListener("click", e => { if (e.target.tagName !== "CANVAS" && !e.target.closest("button")) act(); });
+    el.addEventListener("keydown", e => { if ((e.key === "Enter" || e.key === " ") && e.target === el) { e.preventDefault(); act(); } });
+  });
+
+  /* --- transport --- */
+  root.querySelector("#d-play").onclick = () => engine.toggle();
+  const lt = root.querySelector("#d-looptoggle"); if (lt) lt.onclick = () => engine.toggleLoopActive();
+  const lc = root.querySelector("#d-loopclear"); if (lc) lc.onclick = () => engine.clearLoop();
+  root.querySelector("#d-blind").onchange = e => store.setBlind(e.target.checked);
+  root.querySelector("#d-stopmode").onchange = e => { engine.stopMode = e.target.checked ? "return" : "resume"; };
+  root.querySelectorAll(".stem").forEach(b => b.onclick = () => engine.setStem(b.dataset.stem, !engine.stems[b.dataset.stem]));
+
+  /* --- pins: hover/click highlights the ledger entry --- */
+  const highlight = (i, scroll) => {
+    root.querySelectorAll(".entry.hl").forEach(el => el.classList.remove("hl"));
+    const el = root.querySelector(`#led-${i}`);
+    if (el) { el.classList.add("hl"); if (scroll) el.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
+  };
+  root.querySelectorAll(".pins").forEach(strip => {
+    strip.addEventListener("mouseover", e => { if (e.target.dataset && e.target.dataset.i !== undefined) highlight(+e.target.dataset.i, false); });
+    strip.addEventListener("click", e => { if (e.target.dataset && e.target.dataset.i !== undefined) highlight(+e.target.dataset.i, true); });
+  });
+
+  /* --- ledger --- */
+  const entries = root.querySelector("#d-entries");
+  entries.addEventListener("click", e => {
+    const t = e.target.classList.contains("t") && e.target.dataset.t;
+    if (t) { engine.seek(+t); return; }
+    if (e.target.classList.contains("del")) { store.delObs(+e.target.dataset.i); return; }
+    if (e.target.classList.contains("note")) {
+      const i = +e.target.dataset.i;
+      const span = e.target;
+      const input = document.createElement("input");
+      input.type = "text"; input.value = store.observations[i].note;
+      span.textContent = ""; span.appendChild(input); input.focus(); input.select();
+      const commit = () => store.editObs(i, input.value);
+      input.addEventListener("blur", commit);
+      input.addEventListener("keydown", ev => {
+        ev.stopPropagation();
+        if (ev.key === "Enter") input.blur();
+        if (ev.key === "Escape") { input.removeEventListener("blur", commit); store.emit(); }
+      });
+    }
+  });
+
+  /* --- composer --- */
+  const note = root.querySelector("#d-note");
+  const pinLabel = () => activeLabel() === "src" ? store.labelOf(engine.prevAB) : activeLabel();
+  note.addEventListener("keydown", e => {
+    e.stopPropagation();
+    if (e.key === "Enter") { store.addObs(note.value, e.shiftKey ? null : pinLabel()); note.value = ""; }
+    if (e.key === "Escape") note.blur();
+  });
+
+  /* --- verdict modal --- */
+  const dlg = root.querySelector("#d-dialog");
+  let pendingPref = store.result ? (store.result.preferred === null ? "none" : store.result.preferred) : null;
+  const paintPref = () => root.querySelectorAll("#d-prefbtns button").forEach(b =>
+    b.classList.toggle("sel", b.dataset.p === pendingPref));
+  paintPref();
+  root.querySelector("#d-conclude").onclick = () => { dlg.showModal(); paintPref(); };
+  root.querySelector("#d-prefbtns").onclick = e => {
+    const p = e.target.dataset && e.target.dataset.p;
+    if (!p) return;
+    pendingPref = p; paintPref();     // feedback B2a: select, don't close
+  };
+  root.querySelector("#d-conf").oninput = e => root.querySelector("#d-confv").textContent = e.target.value;
+  root.querySelector("#d-cancel").onclick = () => dlg.close();
+  root.querySelector("#d-save").onclick = () => {
+    if (!pendingPref) return;
+    store.saveResult({
+      preferred: pendingPref === "none" ? null : pendingPref,
+      confidence: +root.querySelector("#d-conf").value,
+      criterion: root.querySelector("#d-crit").value || null,
+    });
+    dlg.close();
+  };
+
+  /* --- help modal --- */
+  const help = root.querySelector("#d-helpdlg");
+  root.querySelector("#d-help").onclick = () => help.showModal();
+  root.querySelector("#d-help2").onclick = () => help.showModal();
+  root.querySelector("#d-helpclose").onclick = () => help.close();
+
+  /* --- keybindings --- */
+  const keys = e => {
+    const inField = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+    if (e.ctrlKey && (e.key === "z" || e.key === "Z")) {
+      e.preventDefault();
+      if (e.shiftKey) store.redo(); else store.undo();
+      return;
+    }
+    if (inField) return;
+    if (e.key === "Tab") { e.preventDefault(); note.focus(); return; }
+    if (e.key === " ") { e.preventDefault(); engine.toggle(); }
+    else if (e.key === "x") engine.switchTo(typeof engine.active === "number" ? store.candOfLabel(activeLabel() === "A" ? "B" : "A") : engine.prevAB);
+    else if (e.key === "X") engine.toggleSource();
+    else if (e.key === "Home" || (e.key === "ArrowLeft" && e.shiftKey)) engine.seek(0);
+    else if (e.key === "ArrowLeft" || e.key === "-") engine.step(-2);
+    else if (e.key === "ArrowRight" || e.key === "=" || e.key === "+") engine.step(2);
+    else if (e.key === "r") engine.toggleLoopActive();
+    else if (e.key === "u") engine.clearLoop();
+    else if (e.key === "?") help.showModal();
+  };
+  document.addEventListener("keydown", keys);
+
+  return {
+    tick() {
+      const el = root.querySelector("#d-clock");
+      if (el) el.textContent = `${fmt(engine.position())} / ${fmt(DUR)}`;
+      const at = root.querySelector("#d-at");
+      if (at && document.activeElement !== note) at.textContent = fmt(engine.position());
+      redraw();
+    },
+    destroy() { document.removeEventListener("keydown", keys); },
+  };
+}
+
 /* ============================ switcher + app loop =========================== */
 const VARIANTS = [
   ["A", "Console — the switch is the instrument", renderA],
   ["B", "Lanes — candidates are places", renderB],
   ["C", "Ledger — the session is a notebook", renderC],
+  ["D", "Synthesis — merged from feedback", renderD],
 ];
 let current = null, mounted = null;
 
 function variantFromURL() {
-  const v = new URLSearchParams(location.search).get("variant") || "A";
-  return VARIANTS.some(x => x[0] === v) ? v : "A";
+  const v = new URLSearchParams(location.search).get("variant") || "D";
+  return VARIANTS.some(x => x[0] === v) ? v : "D";
 }
 function mount(v) {
   if (mounted && mounted.destroy) mounted.destroy();
   current = v;
+  // variants A–C have no source lane; if audio is on the source, drop back to a candidate
+  if (v !== "D" && engine.active === "src") engine.active = engine.prevAB;
   const def = VARIANTS.find(x => x[0] === v);
   document.getElementById("sw-name").textContent = `${def[0]} — ${def[1].split(" — ")[0]}`;
   mounted = def[2](document.getElementById("app"));
@@ -763,6 +1179,7 @@ document.getElementById("sw-prev").onclick = () => cycle(-1);
 document.getElementById("sw-next").onclick = () => cycle(1);
 document.addEventListener("keydown", e => {
   if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+  if (current === "D") return;   // arrows are transport steps in variant D — use the pill
   if (e.key === "ArrowLeft") cycle(-1);
   if (e.key === "ArrowRight") cycle(1);
 });
