@@ -187,10 +187,20 @@
   .vD .pref-badge { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; color: var(--cand-a); border: 1px solid var(--cand-a); border-radius: 999px; padding: 1px 8px; }
   .vD .pins { position: relative; height: 16px; }
   .vD .pins .mk { position: absolute; transform: translateX(-50%); font-size: 11px; font-family: var(--mono); cursor: pointer; line-height: 16px; }
-  .vD .srclane { margin-top: 14px; }
+  .vD .lanes { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
   .vD .srclane canvas { opacity: .65; }
-  .vD .stems { display: flex; gap: 8px; align-items: center; margin: 14px 0 0; flex-wrap: wrap; }
-  .vD .stems button.off { opacity: .38; text-decoration: line-through; }
+  .vD .blindswitch { display: flex; gap: 12px; }
+  .vD .blindswitch button { flex: 1; padding: 18px 10px; font-family: var(--mono); font-size: 20px; border-radius: 10px; }
+  .vD .blindswitch button.on.la { border-color: var(--cand-a); background: var(--cand-a-dim); color: var(--cand-a); }
+  .vD .blindswitch button.on.lb { border-color: var(--cand-b); background: var(--cand-b-dim); color: var(--cand-b); }
+  .vD .waveWrap { position: relative; }
+  .vD .pins.overlay { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); height: 16px; pointer-events: none; }
+  .vD .pins.overlay .mk { pointer-events: auto; }
+  .vD .stemtrack { display: grid; grid-template-columns: 64px 26px 26px 1fr; gap: 8px; align-items: center; margin-top: 8px; }
+  .vD .stemtrack .sm { width: 26px; padding: 2px 0; font-family: var(--mono); font-size: 11px; text-align: center; }
+  .vD .stemtrack .sm.on-s { border-color: var(--cand-a); color: var(--cand-a); background: var(--cand-a-dim); }
+  .vD .stemtrack .sm.on-m { border-color: var(--danger); color: var(--danger); }
+  .vD .stemtrack.dim canvas { opacity: .25; }
   .vD .ledger { margin-top: 26px; }
   .vD .entry { display: grid; grid-template-columns: 92px 52px 1fr 30px; gap: 12px; padding: 9px 0; border-bottom: 1px dotted var(--line); align-items: baseline; }
   .vD .entry.hl { background: var(--surface-2); }
@@ -301,7 +311,10 @@ const engine = {
   playing: false,
   active: 0,                 // 0 | 1 (candidate index) | "src"
   prevAB: 0,                 // last candidate index, for X (source toggle)
-  stems: { vocals: true, drums: true, bass: true },
+  stems: {
+    mute: { vocals: false, drums: false, bass: false },
+    solo: { vocals: false, drums: false, bass: false },
+  },
   startCtxTime: 0, startOffset: 0, appliedLoop: null,
   loop: null,                // {start, end, active}
   stopMode: "resume",        // "resume" | "return"
@@ -314,9 +327,15 @@ const engine = {
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     this.buffers = makeBuffers(this.ctx);
   },
+  stemOn(stem) {
+    const anySolo = STEMS.some(s => this.stems.solo[s]);
+    return (anySolo ? this.stems.solo[stem] : true) && !this.stems.mute[stem];
+  },
+  toggleStemMute(s) { this.stems.mute[s] = !this.stems.mute[s]; this._applyGains(); this.onchange(); },
+  toggleStemSolo(s) { this.stems.solo[s] = !this.stems.solo[s]; this._applyGains(); this.onchange(); },
   _gainFor(target, stem) {
     if (target === "src") return this.active === "src" ? 1 : 0;
-    return (this.active === target && this.stems[stem]) ? 1 : 0;
+    return (this.active === target && this.stemOn(stem)) ? 1 : 0;
   },
   _spinUp(offset) {
     const c = this.ctx;
@@ -475,7 +494,7 @@ const store = {
       })),
       settings: {
         blind: this.blind, loudness_matched: false,
-        stems: Object.keys(engine.stems).filter(s => engine.stems[s]),
+        stems: STEMS.filter(s => engine.stemOn(s)),
         loop: engine.loop ? { start_seconds: +engine.loop.start.toFixed(2), end_seconds: +engine.loop.end.toFixed(2), active: engine.loop.active } : null,
       },
       observations: this.observations.map(o => ({
@@ -519,7 +538,11 @@ function drawWave(canvas, candIdx, opts = {}) {
   }
   if (engine.buffers) {
     let data, color;
-    if (candIdx === "src") { data = engine.buffers.src.getChannelData(0); color = muted; }
+    if (opts.buffer) {
+      data = opts.buffer.getChannelData(0);
+      color = opts.color === "A" ? colA : opts.color === "B" ? colB : muted;
+    }
+    else if (candIdx === "src") { data = engine.buffers.src.getChannelData(0); color = muted; }
     else {
       const ci = candIdx !== undefined ? candIdx : (typeof engine.active === "number" ? engine.active : engine.prevAB);
       data = engine.buffers.cands[ci].vocals.getChannelData(0);
@@ -890,7 +913,7 @@ function renderD(root) {
       <div class="top">
         <span><span class="chip ${l === "A" ? "a" : "b"}">${l}</span> <span style="color:var(--muted);font-size:13px">${candName(l)}</span></span>
         <span style="display:flex;gap:10px;align-items:center">
-          ${preferred ? `<span class="pref-badge">★ preferred</span>` : ""}
+          ${preferred ? `<span class="pref-badge">★ preferred · ${store.result.confidence}/5</span>` : ""}
           <span class="live">${on ? "● live" : "muted"}</span>
         </span>
       </div>
@@ -898,22 +921,47 @@ function renderD(root) {
     </div>`;
   };
   const loop = engine.loop;
+  const concealedLanes = store.blind && !store.result;  // feedback: blind hides the A/B lanes
+  const dispCand = typeof engine.active === "number" ? engine.active : engine.prevAB;
+  const dispCol = store.labelOf(dispCand) === "A" ? "var(--cand-a)" : "var(--cand-b)";
   root.innerHTML = `
   <div class="vD">
     <header>
       <h1>uncompose compare <span class="tc" style="color:var(--muted)">— synthesis</span></h1>
       <div style="display:flex;gap:10px;align-items:center">
-        <button id="d-help" title="Help &amp; keybindings">?</button>
+        <button id="d-help" title="Help &amp; keybindings (?)">?</button>
         <button id="d-conclude">${store.result ? "Edit verdict…" : "Conclude…"}</button>
       </div>
     </header>
 
+    <div class="lanes">
+      ${concealedLanes ? `
+      <div class="blindswitch">
+        <button id="d-bsA" class="la ${lab === "A" ? "on" : ""}">A</button>
+        <button id="d-bsB" class="lb ${lab === "B" ? "on" : ""}">B</button>
+      </div>
+      <span class="label">blind — lanes hidden · switch with the buttons or x</span>`
+      : laneHTML("A") + laneHTML("B")}
+      <div class="lane srclane ${lab === "src" ? "on lsrc" : ""}" data-lane="src" role="button" tabindex="0" aria-pressed="${lab === "src"}">
+        <div class="top">
+          <span><span class="chip">SRC</span> <span style="color:var(--muted);font-size:13px">${SOURCE.asset} — ${SOURCE.detail}</span></span>
+          <span class="live">${lab === "src" ? "● live" : "muted"}</span>
+        </div>
+        <canvas class="wave" data-wave="src" style="height:34px"></canvas>
+      </div>
+    </div>
+
     <div class="stage">
-      <div style="display:flex;justify-content:space-between;align-items:baseline">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
         <span class="label">now auditioning — <span style="color:var(--text)">${lab === "src" ? SOURCE.asset + " (source)" : lab + " · " + candName(lab)}</span></span>
         <span class="tc" id="d-clock">${fmt(engine.position())} / ${fmt(DUR)}</span>
       </div>
-      <canvas class="wave" id="d-wave" style="height:88px;margin-top:10px"></canvas>
+      <div class="pins" id="d-pins-a">${pinsFor("A")}</div>
+      <div class="waveWrap">
+        <canvas class="wave" id="d-wave" style="height:88px"></canvas>
+        <div class="pins overlay" id="d-pins-both">${pinsFor("both")}</div>
+      </div>
+      <div class="pins" id="d-pins-b">${pinsFor("B")}</div>
       <div class="transport">
         <button id="d-play" style="min-width:84px">${engine.playing ? "Stop" : "Play"}</button>
         <span class="loopbox ${loop && loop.active ? "active" : ""}">
@@ -927,27 +975,18 @@ function renderD(root) {
         <label class="label" style="display:inline-flex;gap:6px;align-items:center;cursor:pointer" title="What Stop does with the playhead">
           <input type="checkbox" id="d-stopmode" ${engine.stopMode === "return" ? "checked" : ""}> stop returns
         </label>
-        <span class="label" style="margin-left:auto">click waveform = seek · drag = loop</span>
+        <span class="label" style="margin-left:auto">click = seek · drag = loop · ? help</span>
       </div>
-      <div class="stems">
-        <span class="label">stems</span>
-        ${STEMS.map(s => `<button class="stem ${engine.stems[s] ? "" : "off"}" data-stem="${s}">${s}</button>`).join("")}
-        <span class="label" style="margin-left:6px">synchronized across lanes · not applied to source</span>
+      <div style="margin-top:16px">
+        <span class="label">stems — ${concealedLanes ? "concealed candidate" : (lab === "src" ? "last A/B lane" : lab)} · solo/mute synchronized across lanes · not applied to source</span>
+        ${STEMS.map(s => `
+        <div class="stemtrack ${engine.stemOn(s) ? "" : "dim"}">
+          <span class="label">${s}</span>
+          <button class="sm ${engine.stems.solo[s] ? "on-s" : ""}" data-solo="${s}" title="Solo ${s}">S</button>
+          <button class="sm ${engine.stems.mute[s] ? "on-m" : ""}" data-mute="${s}" title="Mute ${s}">M</button>
+          <canvas class="wave" data-stemwave="${s}" style="height:34px"></canvas>
+        </div>`).join("")}
       </div>
-    </div>
-
-    <div class="pins" id="d-pins-a">${pinsFor("A")}</div>
-    ${laneHTML("A")}
-    <div class="pins" id="d-pins-both">${pinsFor("both")}</div>
-    ${laneHTML("B")}
-    <div class="pins" id="d-pins-b">${pinsFor("B")}</div>
-
-    <div class="lane srclane ${lab === "src" ? "on lsrc" : ""}" data-lane="src" role="button" tabindex="0" aria-pressed="${lab === "src"}">
-      <div class="top">
-        <span><span class="chip">SRC</span> <span style="color:var(--muted);font-size:13px">${SOURCE.asset} — ${SOURCE.detail}</span></span>
-        <span class="live">${lab === "src" ? "● live" : "muted"}</span>
-      </div>
-      <canvas class="wave" data-wave="src" style="height:34px"></canvas>
     </div>
 
     <div class="ledger">
@@ -965,7 +1004,6 @@ function renderD(root) {
         <span class="tc" style="color:var(--muted)" id="d-at">${fmt(engine.position())}</span>
         <input type="text" id="d-note" placeholder="what do you hear? — enter pins ${lab === "src" ? "the last A/B lane" : lab}, shift+enter pins both">
       </div>
-      <div class="keysline"><kbd>space</kbd> play/stop · <kbd>x</kbd> A/B · <kbd>shift+x</kbd> source · <kbd>←</kbd>/<kbd>→</kbd> step · <kbd>home</kbd> start · <kbd>r</kbd> loop on/off · <kbd>u</kbd> clear loop · <kbd>tab</kbd> write · <kbd>ctrl+z</kbd>/<kbd>ctrl+shift+z</kbd> undo/redo — <button id="d-help2" style="padding:1px 8px;font-size:11px">all keys</button></div>
       ${store.result ? savedBannerHTML() : ""}
     </div>
 
@@ -989,7 +1027,7 @@ function renderD(root) {
 
     <dialog id="d-helpdlg">
       <h2 style="margin:0 0 10px;font-size:16px">Workbench help</h2>
-      <p style="color:var(--muted);font-size:13px;margin:0 0 12px">Click a lane (or its waveform area) to audition it. Drag on any waveform to set the loop region; click to seek. Pins above lane A belong to A, pins below lane B to B, diamonds between to both. The verdict stays editable after saving.</p>
+      <p style="color:var(--muted);font-size:13px;margin:0 0 12px">Click a lane to audition it. Drag on any waveform to set the loop region; click to seek. On the stage waveform, carets above belong to A, carets below to B, diamonds on the waveform to both — hover or click one to find its ledger entry. Each stem track has solo (S) and mute (M), synchronized across lanes; the tracks show the candidate being auditioned. Blind mode hides the A/B lanes (switch with the buttons or <kbd>x</kbd>) and shuffles which file is which. The verdict stays editable after saving.</p>
       <table>
         <tr><td><kbd>space</kbd></td><td>play / stop (see "stop returns" toggle)</td></tr>
         <tr><td><kbd>x</kbd></td><td>toggle A / B</td></tr>
@@ -1008,18 +1046,18 @@ function renderD(root) {
   </div>`;
 
   /* --- waveforms --- */
-  const waves = {
-    main: root.querySelector("#d-wave"),
-    A: root.querySelector('[data-wave="A"]'),
-    B: root.querySelector('[data-wave="B"]'),
-    src: root.querySelector('[data-wave="src"]'),
-  };
-  Object.values(waves).forEach(w => attachWaveInteraction(w, true));
+  root.querySelectorAll("canvas.wave").forEach(w => attachWaveInteraction(w, true));
   const redraw = () => {
-    drawWave(waves.main, undefined, { obsTicks: false });
-    drawWave(waves.A, store.candOfLabel("A"));
-    drawWave(waves.B, store.candOfLabel("B"));
-    drawWave(waves.src, "src");
+    const q = sel => root.querySelector(sel);
+    if (q("#d-wave")) drawWave(q("#d-wave"));
+    if (q('[data-wave="A"]')) drawWave(q('[data-wave="A"]'), store.candOfLabel("A"));
+    if (q('[data-wave="B"]')) drawWave(q('[data-wave="B"]'), store.candOfLabel("B"));
+    if (q('[data-wave="src"]')) drawWave(q('[data-wave="src"]'), "src");
+    STEMS.forEach(s => {
+      const c = q(`[data-stemwave="${s}"]`);
+      // stem tracks display the candidate being auditioned (feedback: A/B toggle swaps them)
+      if (c) drawWave(c, null, { buffer: engine.buffers.cands[dispCand][s], color: store.labelOf(dispCand) });
+    });
   };
   redraw();
 
@@ -1039,7 +1077,11 @@ function renderD(root) {
   const lc = root.querySelector("#d-loopclear"); if (lc) lc.onclick = () => engine.clearLoop();
   root.querySelector("#d-blind").onchange = e => store.setBlind(e.target.checked);
   root.querySelector("#d-stopmode").onchange = e => { engine.stopMode = e.target.checked ? "return" : "resume"; };
-  root.querySelectorAll(".stem").forEach(b => b.onclick = () => engine.setStem(b.dataset.stem, !engine.stems[b.dataset.stem]));
+  root.querySelectorAll("[data-solo]").forEach(b => b.onclick = () => engine.toggleStemSolo(b.dataset.solo));
+  root.querySelectorAll("[data-mute]").forEach(b => b.onclick = () => engine.toggleStemMute(b.dataset.mute));
+  const bsA = root.querySelector("#d-bsA"), bsB = root.querySelector("#d-bsB");
+  if (bsA) bsA.onclick = () => engine.switchTo(store.candOfLabel("A"));
+  if (bsB) bsB.onclick = () => engine.switchTo(store.candOfLabel("B"));
 
   /* --- pins: hover/click highlights the ledger entry --- */
   const highlight = (i, scroll) => {
@@ -1110,7 +1152,6 @@ function renderD(root) {
   /* --- help modal --- */
   const help = root.querySelector("#d-helpdlg");
   root.querySelector("#d-help").onclick = () => help.showModal();
-  root.querySelector("#d-help2").onclick = () => help.showModal();
   root.querySelector("#d-helpclose").onclick = () => help.close();
 
   /* --- keybindings --- */
