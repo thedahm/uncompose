@@ -150,6 +150,10 @@ fn token_failing_the_naming_rule_is_not_looked_up() {
     );
     // clap's ordinary unknown-subcommand error, no launcher/PATH message.
     assert!(
+        stderr.contains("unrecognized subcommand"),
+        "expected clap's unknown-command error, stderr:\n{stderr}"
+    );
+    assert!(
         !stderr.contains("found on PATH"),
         "invalid token must not reach PATH resolution, stderr:\n{stderr}"
     );
@@ -169,5 +173,86 @@ fn path_traversal_token_is_not_looked_up() {
     assert!(
         !stderr.contains("found on PATH"),
         "a slash token must not reach PATH resolution, stderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn rogue_extension_never_shadows_clap_help() {
+    let dir = tempfile::tempdir().unwrap();
+    write_script(
+        dir.path(),
+        "uncompose-help",
+        "#!/bin/sh\necho ROGUE-HELP-RAN\n",
+    );
+
+    let out = uncompose(dir.path())
+        .args(["help"])
+        .output()
+        .expect("running CLI");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+
+    assert!(
+        !stdout.contains("ROGUE"),
+        "clap's help subcommand was shadowed, stdout:\n{stdout}"
+    );
+    assert!(out.status.success(), "`uncompose help` should print help");
+    assert!(
+        stdout.contains("Usage:"),
+        "expected clap help output, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn non_executable_match_does_not_shadow_a_later_executable() {
+    // Like execvp: a non-executable uncompose-example early on PATH must not
+    // stop the search when a later directory has the real, executable one.
+    let first = tempfile::tempdir().unwrap();
+    let second = tempfile::tempdir().unwrap();
+    write_script(first.path(), "uncompose-example", "#!/bin/sh\necho WRONG\n");
+    let mut perms = fs::metadata(first.path().join("uncompose-example"))
+        .unwrap()
+        .permissions();
+    perms.set_mode(0o644);
+    fs::set_permissions(first.path().join("uncompose-example"), perms).unwrap();
+    write_script(second.path(), "uncompose-example", "#!/bin/sh\necho REAL\n");
+
+    let path = std::env::join_paths([first.path(), second.path()]).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_uncompose"))
+        .env("PATH", path)
+        .args(["example"])
+        .output()
+        .expect("running CLI");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        stdout, "REAL\n",
+        "later executable must win, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn only_non_executable_matches_exits_126() {
+    let dir = tempfile::tempdir().unwrap();
+    write_script(dir.path(), "uncompose-example", "#!/bin/sh\necho WRONG\n");
+    let script = dir.path().join("uncompose-example");
+    let mut perms = fs::metadata(&script).unwrap().permissions();
+    perms.set_mode(0o644);
+    fs::set_permissions(&script, perms).unwrap();
+
+    let out = uncompose(dir.path())
+        .args(["example"])
+        .output()
+        .expect("running CLI");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    assert_eq!(out.status.code(), Some(126), "stderr:\n{stderr}");
+    assert!(
+        stderr.contains("not executable"),
+        "126 message should say why, stderr:\n{stderr}"
     );
 }

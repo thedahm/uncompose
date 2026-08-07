@@ -7,17 +7,20 @@
 //!
 //! This module implements the M0.1 core dispatch: finding and exec'ing the
 //! extension. The richer failure UX (install hints, did-you-mean) is layered on
-//! top in later work; here a missing extension is a plain 127 and a
+//! top in #79; here a missing extension is a plain 127 and a
 //! present-but-not-executable one a plain 126, per the launcher convention.
 
+use std::ffi::OsString;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Builtins always win over a same-named `uncompose-*` executable on `PATH`, so
-/// installing a rogue `uncompose-separate` changes nothing.
-const BUILTINS: &[&str] = &["separate", "play", "open", "models"];
+/// installing a rogue `uncompose-separate` changes nothing. `help` is clap's
+/// auto-generated subcommand rather than a `Command` variant; the rest must
+/// track the clap tree (enforced by a test below).
+const BUILTINS: &[&str] = &["separate", "play", "open", "models", "help"];
 
 /// If argv designates an external command, `exec()` it (never returning) or exit
 /// with a launcher error code. Otherwise return so clap parses argv normally.
@@ -26,14 +29,17 @@ const BUILTINS: &[&str] = &["separate", "play", "open", "models"];
 /// matches `^[a-z0-9][a-z0-9-]*$`. A leading flag (or no argument at all) is the
 /// root's own business and falls through to clap; no root flags are forwarded.
 pub fn maybe_dispatch() {
-    let args: Vec<String> = std::env::args().collect();
-    let Some(token) = args.get(1) else {
+    let args: Vec<OsString> = std::env::args_os().collect();
+    // A non-UTF-8 first token cannot match the ASCII naming rule, so it falls
+    // through to clap like any other ineligible token. Later arguments stay
+    // OsString the whole way — they are forwarded, never inspected.
+    let Some(token) = args.get(1).and_then(|t| t.to_str()) else {
         return;
     };
     if token.starts_with('-') {
         return;
     }
-    if BUILTINS.contains(&token.as_str()) {
+    if BUILTINS.contains(&token) {
         return;
     }
     // Tokens that fail the naming rule (uppercase, dots, slashes) never trigger a
@@ -55,7 +61,7 @@ fn is_valid_token(token: &str) -> bool {
     chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
-fn dispatch(token: &str, forwarded: &[String]) -> ! {
+fn dispatch(token: &str, forwarded: &[OsString]) -> ! {
     let name = format!("uncompose-{token}");
     match resolve(&name) {
         Resolution::Executable(path) => {
@@ -88,27 +94,52 @@ enum Resolution {
     NotFound,
 }
 
-/// Walk `PATH` looking for `name`, returning the first match and whether it is
-/// executable. Earlier `PATH` entries win, matching shell lookup order.
+/// Walk `PATH` looking for an executable `name`. Like `execvp`, a
+/// non-executable match does not stop the search — later directories can still
+/// supply the real binary; the first such match is only reported (as 126) when
+/// no executable exists anywhere on `PATH`.
 fn resolve(name: &str) -> Resolution {
     let Some(path) = std::env::var_os("PATH") else {
         return Resolution::NotFound;
     };
+    let mut not_executable: Option<PathBuf> = None;
     for dir in std::env::split_paths(&path) {
         let candidate = dir.join(name);
         if candidate.is_file() {
-            return if is_executable(&candidate) {
-                Resolution::Executable(candidate)
-            } else {
-                Resolution::NotExecutable(candidate)
-            };
+            if is_executable(&candidate) {
+                return Resolution::Executable(candidate);
+            }
+            not_executable.get_or_insert(candidate);
         }
     }
-    Resolution::NotFound
+    match not_executable {
+        Some(path) => Resolution::NotExecutable(path),
+        None => Resolution::NotFound,
+    }
 }
 
 fn is_executable(path: &Path) -> bool {
     std::fs::metadata(path)
         .map(|m| m.permissions().mode() & 0o111 != 0)
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::CommandFactory;
+
+    /// Every clap subcommand must appear in `BUILTINS`, or an extension named
+    /// after it could shadow the builtin. `help` is asserted separately because
+    /// clap generates it outside the `Command` enum.
+    #[test]
+    fn builtins_cover_every_clap_subcommand() {
+        for sub in crate::Cli::command().get_subcommands() {
+            assert!(
+                super::BUILTINS.contains(&sub.get_name()),
+                "clap subcommand '{}' is missing from BUILTINS",
+                sub.get_name()
+            );
+        }
+        assert!(super::BUILTINS.contains(&"help"));
+    }
 }
