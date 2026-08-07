@@ -27,7 +27,7 @@ where the two disagree, the ADR wins.
   stdin/stdout/stderr, TTY-ness, signals, and your exit code are all natively
   yours. When dispatch itself fails, the root exits with the launcher
   convention: **127** when no `uncompose-<command>` exists on `PATH`, **126**
-  when one exists but is not executable.
+  when one exists but is not executable (or `exec` otherwise failed).
 - **Builtins win.** A builtin name (`separate`, `play`, ...) never dispatches; an
   extension cannot shadow it.
 
