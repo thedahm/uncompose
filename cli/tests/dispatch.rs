@@ -256,3 +256,153 @@ fn only_non_executable_matches_exits_126() {
         "126 message should say why, stderr:\n{stderr}"
     );
 }
+
+#[test]
+fn missing_extension_exits_127_naming_the_mechanism() {
+    let dir = tempfile::tempdir().unwrap(); // empty PATH: nothing installed
+
+    let out = uncompose(dir.path())
+        .args(["foo"])
+        .output()
+        .expect("running CLI");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    assert_eq!(out.status.code(), Some(127), "stderr:\n{stderr}");
+    assert!(
+        stderr.contains("'foo' is not an uncompose command"),
+        "message should name the token, stderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("no 'uncompose-foo' found on PATH"),
+        "message should name the exact executable looked for, stderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn known_family_name_appends_install_hint() {
+    let dir = tempfile::tempdir().unwrap();
+
+    for family in ["project", "compare"] {
+        let out = uncompose(dir.path())
+            .args([family])
+            .output()
+            .expect("running CLI");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+
+        assert_eq!(out.status.code(), Some(127), "stderr:\n{stderr}");
+        assert!(
+            stderr.contains(&format!(
+                "install it with: uv tool install uncompose-{family}"
+            )),
+            "family name '{family}' should get the install hint, stderr:\n{stderr}"
+        );
+    }
+}
+
+#[test]
+fn typo_of_a_builtin_gets_a_did_you_mean() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let out = uncompose(dir.path())
+        .args(["seperate"])
+        .output()
+        .expect("running CLI");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    assert_eq!(out.status.code(), Some(127), "stderr:\n{stderr}");
+    assert!(
+        stderr.contains("separate"),
+        "should suggest the builtin 'separate', stderr:\n{stderr}"
+    );
+    assert!(
+        stderr.to_lowercase().contains("did you mean"),
+        "stderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn typo_of_an_installed_extension_gets_a_did_you_mean() {
+    let dir = tempfile::tempdir().unwrap();
+    write_script(dir.path(), "uncompose-example", "#!/bin/sh\nexit 0\n");
+
+    let out = uncompose(dir.path())
+        .args(["exampel"])
+        .output()
+        .expect("running CLI");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    assert_eq!(out.status.code(), Some(127), "stderr:\n{stderr}");
+    assert!(
+        stderr.contains("example"),
+        "should suggest the installed extension 'example', stderr:\n{stderr}"
+    );
+    assert!(
+        stderr.to_lowercase().contains("did you mean"),
+        "stderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn non_executable_extension_is_not_a_did_you_mean_candidate() {
+    // A non-executable uncompose-example can't be dispatched, so suggesting it
+    // would point the user at something that still fails.
+    let dir = tempfile::tempdir().unwrap();
+    write_script(dir.path(), "uncompose-example", "#!/bin/sh\nexit 0\n");
+    let script = dir.path().join("uncompose-example");
+    let mut perms = fs::metadata(&script).unwrap().permissions();
+    perms.set_mode(0o644);
+    fs::set_permissions(&script, perms).unwrap();
+
+    let out = uncompose(dir.path())
+        .args(["exampel"])
+        .output()
+        .expect("running CLI");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    assert_eq!(out.status.code(), Some(127), "stderr:\n{stderr}");
+    assert!(
+        !stderr.to_lowercase().contains("did you mean"),
+        "non-executable files must not be suggested, stderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn distant_unknown_name_gets_no_did_you_mean() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let out = uncompose(dir.path())
+        .args(["zzzqqq"])
+        .output()
+        .expect("running CLI");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    assert_eq!(out.status.code(), Some(127), "stderr:\n{stderr}");
+    assert!(
+        !stderr.to_lowercase().contains("did you mean"),
+        "nothing is close to 'zzzqqq', stderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn exec_failure_of_an_executable_extension_exits_126() {
+    // Executable bit set, but the shebang interpreter does not exist, so
+    // exec() itself fails after resolution succeeded.
+    let dir = tempfile::tempdir().unwrap();
+    write_script(
+        dir.path(),
+        "uncompose-example",
+        "#!/nonexistent-interpreter\n",
+    );
+
+    let out = uncompose(dir.path())
+        .args(["example"])
+        .output()
+        .expect("running CLI");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    assert_eq!(out.status.code(), Some(126), "stderr:\n{stderr}");
+    assert!(
+        stderr.contains("failed to run 'uncompose-example'"),
+        "126 message should say the exec failed, stderr:\n{stderr}"
+    );
+}

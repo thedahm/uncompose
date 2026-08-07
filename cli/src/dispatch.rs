@@ -5,10 +5,12 @@
 //! platform, per ADR-0004) `exec()` replaces this process, so the extension owns
 //! stdin/stdout/stderr, TTY-ness, signals, and the exit code natively.
 //!
-//! This module implements the M0.1 core dispatch: finding and exec'ing the
-//! extension. The richer failure UX (install hints, did-you-mean) is layered on
-//! top in #79; here a missing extension is a plain 127 and a
-//! present-but-not-executable one a plain 126, per the launcher convention.
+//! When dispatch fails, the launcher convention applies: 127 for a missing
+//! extension, 126 for one that is present but not executable (or whose `exec`
+//! failed). The 127 message names the exact `uncompose-<token>` looked for;
+//! known family names get an install hint, and other unknown names a
+//! did-you-mean against builtins and the `uncompose-*` executables actually
+//! installed (#79).
 
 use std::ffi::OsString;
 use std::os::unix::fs::PermissionsExt;
@@ -21,6 +23,11 @@ use std::process::Command;
 /// auto-generated subcommand rather than a `Command` variant; the rest must
 /// track the clap tree (enforced by a test below).
 const BUILTINS: &[&str] = &["separate", "play", "open", "models", "help"];
+
+/// First-party sibling tools that exist as PyPI packages even when not
+/// installed locally, so a miss on these names gets an install hint instead of
+/// a did-you-mean (ADR-0005).
+const FAMILY: &[&str] = &["project", "compare"];
 
 /// If argv designates an external command, `exec()` it (never returning) or exit
 /// with a launcher error code. Otherwise return so clap parses argv normally.
@@ -83,6 +90,15 @@ fn dispatch(token: &str, forwarded: &[OsString]) -> ! {
                 "uncompose: '{token}' is not an uncompose command \
                  (no '{name}' found on PATH)"
             );
+            if FAMILY.contains(&token) {
+                eprintln!("install it with: uv tool install {name}");
+            } else {
+                let close = suggestions(token, &installed_extensions());
+                if !close.is_empty() {
+                    let list: Vec<String> = close.iter().map(|s| format!("'{s}'")).collect();
+                    eprintln!("did you mean {}?", list.join(" or "));
+                }
+            }
             std::process::exit(127);
         }
     }
@@ -118,6 +134,72 @@ fn resolve(name: &str) -> Resolution {
     }
 }
 
+/// Scan `PATH` for executable `uncompose-*` files and return their command
+/// names (prefix stripped), sorted and deduplicated. Names only, by directory
+/// listing — nothing is executed. Also the future basis for the
+/// "External commands (installed):" help section (ADR-0005).
+fn installed_extensions() -> Vec<String> {
+    let Some(path) = std::env::var_os("PATH") else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = Vec::new();
+    for dir in std::env::split_paths(&path) {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(file_name) = entry.file_name().into_string() else {
+                continue;
+            };
+            let Some(name) = file_name.strip_prefix("uncompose-") else {
+                continue;
+            };
+            if is_valid_token(name) && entry.path().is_file() && is_executable(&entry.path()) {
+                names.push(name.to_string());
+            }
+        }
+    }
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// The closest candidates to `token` among builtins and installed extensions:
+/// everything within edit distance 2, nearest first, ties alphabetical (the
+/// candidate lists are pre-sorted and the sort is stable).
+fn suggestions(token: &str, installed: &[String]) -> Vec<String> {
+    let mut candidates: Vec<String> = BUILTINS
+        .iter()
+        .map(|s| s.to_string())
+        .chain(installed.iter().cloned())
+        .collect();
+    candidates.sort();
+    candidates.dedup();
+    let mut scored: Vec<(usize, String)> = candidates
+        .into_iter()
+        .map(|c| (levenshtein(token, &c), c))
+        .filter(|(d, _)| *d <= 2)
+        .collect();
+    scored.sort_by_key(|(d, _)| *d);
+    scored.into_iter().map(|(_, c)| c).collect()
+}
+
+/// Classic two-row Levenshtein; inputs are short command names, so O(n·m) is
+/// nothing.
+fn levenshtein(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut curr = vec![i + 1];
+        for (j, cb) in b.iter().enumerate() {
+            let sub = prev[j] + usize::from(ca != *cb);
+            curr.push(sub.min(prev[j + 1] + 1).min(curr[j] + 1));
+        }
+        prev = curr;
+    }
+    prev[b.len()]
+}
+
 fn is_executable(path: &Path) -> bool {
     std::fs::metadata(path)
         .map(|m| m.permissions().mode() & 0o111 != 0)
@@ -141,5 +223,36 @@ mod tests {
             );
         }
         assert!(super::BUILTINS.contains(&"help"));
+    }
+
+    /// Family names must never collide with builtins — a collision would make
+    /// the install hint unreachable (the builtin always wins dispatch).
+    #[test]
+    fn family_names_are_not_builtins() {
+        for family in super::FAMILY {
+            assert!(!super::BUILTINS.contains(family));
+        }
+    }
+
+    #[test]
+    fn levenshtein_basics() {
+        assert_eq!(super::levenshtein("separate", "separate"), 0);
+        assert_eq!(super::levenshtein("seperate", "separate"), 1);
+        assert_eq!(super::levenshtein("", "abc"), 3);
+        assert_eq!(super::levenshtein("kitten", "sitting"), 3);
+    }
+
+    #[test]
+    fn suggestions_rank_nearest_first_and_cut_off_at_distance_two() {
+        let installed = vec!["example".to_string(), "sep".to_string()];
+        assert_eq!(super::suggestions("seperate", &installed), ["separate"]);
+        assert_eq!(super::suggestions("exampel", &installed), ["example"]);
+        assert!(super::suggestions("zzzqqq", &installed).is_empty());
+    }
+
+    #[test]
+    fn suggestions_dedupe_a_name_that_is_both_builtin_and_installed() {
+        let installed = vec!["play".to_string()];
+        assert_eq!(super::suggestions("pla", &installed), ["play"]);
     }
 }
