@@ -1,0 +1,36 @@
+#!/bin/sh
+# Minimal uncompose extension (dispatch-contract revision 1, see docs/adr/0005).
+# Install anywhere on PATH as `uncompose-example`; then `uncompose example ...`
+# delegates here with arguments forwarded verbatim and this script's exit code
+# as the user-visible exit code.
+
+VERSION="0.1.0"
+
+case "$1" in
+    --version)
+        # Required: one line to stdout, exit 0, shaped `uncompose-example X.Y.Z`.
+        echo "uncompose-example $VERSION"
+        exit 0
+        ;;
+    --help)
+        # Required: human-readable usage to stdout, exit 0. Shell builtins
+        # only, so the script works even under a minimal PATH.
+        echo "Usage: uncompose example [ARGS...]"
+        echo "       uncompose example exit <code>"
+        echo "       uncompose example --version"
+        echo "       uncompose example --help"
+        echo ""
+        echo "A minimal example extension for verifying uncompose dispatch. It echoes"
+        echo "the arguments it received; 'exit <code>' exits with that code so you can"
+        echo "confirm exit codes pass through."
+        exit 0
+        ;;
+    exit)
+        exit "${2:-0}"
+        ;;
+esac
+
+echo "uncompose-example: received $# argument(s)"
+for arg in "$@"; do
+    echo "  $arg"
+done
