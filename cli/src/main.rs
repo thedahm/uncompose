@@ -11,6 +11,8 @@ use std::time::Instant;
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
+
+mod dispatch;
 use uncompose_core::fetch::{self, ensure_model, FetchEvent, HttpFetcher};
 use uncompose_core::preset::{self, Preset};
 use uncompose_core::registry;
@@ -73,6 +75,9 @@ enum ModelsCommand {
 }
 
 fn main() -> Result<()> {
+    // Git-style external-command dispatch happens before clap sees argv: an
+    // eligible first token `exec()`s `uncompose-<token>` and never returns here.
+    dispatch::maybe_dispatch();
     let cli = Cli::parse();
     match cli.command {
         Command::Separate {
