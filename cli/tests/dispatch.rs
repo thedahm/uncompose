@@ -321,6 +321,30 @@ fn typo_of_a_builtin_gets_a_did_you_mean() {
 }
 
 #[test]
+fn typo_of_a_family_name_gets_a_did_you_mean() {
+    // 'projct' is close to no builtin and nothing installed, but suggesting
+    // 'project' routes the user to the exact miss that carries the install
+    // hint.
+    let dir = tempfile::tempdir().unwrap();
+
+    let out = uncompose(dir.path())
+        .args(["projct"])
+        .output()
+        .expect("running CLI");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    assert_eq!(out.status.code(), Some(127), "stderr:\n{stderr}");
+    assert!(
+        stderr.contains("'project'"),
+        "should suggest the family name 'project', stderr:\n{stderr}"
+    );
+    assert!(
+        stderr.to_lowercase().contains("did you mean"),
+        "stderr:\n{stderr}"
+    );
+}
+
+#[test]
 fn typo_of_an_installed_extension_gets_a_did_you_mean() {
     let dir = tempfile::tempdir().unwrap();
     write_script(dir.path(), "uncompose-example", "#!/bin/sh\nexit 0\n");

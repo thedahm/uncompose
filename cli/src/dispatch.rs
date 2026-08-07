@@ -164,12 +164,16 @@ fn installed_extensions() -> Vec<String> {
     names
 }
 
-/// The closest candidates to `token` among builtins and installed extensions:
-/// everything within edit distance 2, nearest first, ties alphabetical (the
-/// candidate lists are pre-sorted and the sort is stable).
+/// The closest candidates to `token` among builtins, family names, and
+/// installed extensions: everything within edit distance 2, nearest first,
+/// ties alphabetical (candidates are sorted before scoring and the distance
+/// sort is stable). Family names are included so a typo of an uninstalled
+/// family tool ('projct') routes the user to the name whose exact miss
+/// carries the install hint.
 fn suggestions(token: &str, installed: &[String]) -> Vec<String> {
     let mut candidates: Vec<String> = BUILTINS
         .iter()
+        .chain(FAMILY)
         .map(|s| s.to_string())
         .chain(installed.iter().cloned())
         .collect();
