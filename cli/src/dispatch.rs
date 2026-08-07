@@ -30,8 +30,6 @@ pub fn maybe_dispatch() {
     let Some(token) = args.get(1) else {
         return;
     };
-    // No root flags are forwarded: a leading flag (`--help`, `--version`, or an
-    // error) belongs to clap, not to an extension.
     if token.starts_with('-') {
         return;
     }
