@@ -37,15 +37,15 @@ fn help_lists_installed_extensions_after_builtins() {
     let stdout = String::from_utf8_lossy(&out.stdout);
 
     assert!(out.status.success());
-    let section = stdout
+    let section_start = stdout
         .find("External commands (installed):")
         .unwrap_or_else(|| panic!("missing external commands section, stdout:\n{stdout}"));
     assert!(stdout.contains("\n  example\n"), "stdout:\n{stdout}");
     assert!(stdout.contains("\n  project\n"), "stdout:\n{stdout}");
     // Builtins first, then the external section.
-    let builtins = stdout.find("separate").expect("builtin listed");
+    let builtins_start = stdout.find("separate").expect("builtin listed");
     assert!(
-        builtins < section,
+        builtins_start < section_start,
         "builtins should precede the external section, stdout:\n{stdout}"
     );
 }
@@ -88,8 +88,10 @@ fn duplicate_names_across_path_entries_appear_once() {
     let stdout = String::from_utf8_lossy(&out.stdout);
 
     assert!(out.status.success());
+    // Match the whole listing line, not the bare substring, so unrelated help
+    // prose mentioning "example" can never satisfy or break this.
     assert_eq!(
-        stdout.matches("example").count(),
+        stdout.matches("\n  example\n").count(),
         1,
         "a name shadowed by an earlier PATH entry must appear once, stdout:\n{stdout}"
     );
