@@ -10,7 +10,7 @@ use std::process::Command as Process;
 use std::time::Instant;
 
 use anyhow::{anyhow, bail, Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 
 mod dispatch;
 use uncompose_core::fetch::{self, ensure_model, FetchEvent, HttpFetcher};
@@ -82,7 +82,7 @@ fn main() -> Result<()> {
     // Git-style external-command dispatch happens before clap sees argv: an
     // eligible first token `exec()`s `uncompose-<token>` and never returns here.
     dispatch::maybe_dispatch();
-    let cli = Cli::parse();
+    let cli = parse_with_external_commands_help();
     match cli.command {
         Command::Separate {
             song,
@@ -98,6 +98,27 @@ fn main() -> Result<()> {
             ModelsCommand::Remove { id } => models_remove(&id),
         },
     }
+}
+
+/// `Cli::parse()`, with the root help extended by an
+/// "External commands (installed):" section listing the executable
+/// `uncompose-*` names found on `PATH` (ADR-0005). The section is a directory
+/// scan — names only, nothing is executed — and is omitted entirely when no
+/// extension is installed.
+fn parse_with_external_commands_help() -> Cli {
+    let mut cmd = Cli::command();
+    let extensions = dispatch::installed_extensions();
+    if !extensions.is_empty() {
+        let mut section = String::from("External commands (installed):\n");
+        for name in &extensions {
+            section.push_str(&format!("  {name}\n"));
+        }
+        // after_help keeps clap's builtin Commands/Options blocks first; trim
+        // the trailing newline so clap's own spacing stays intact.
+        cmd = cmd.after_help(section.trim_end().to_string());
+    }
+    let matches = cmd.get_matches();
+    Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit())
 }
 
 fn models_list() -> Result<()> {

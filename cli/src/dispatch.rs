@@ -136,9 +136,9 @@ fn resolve(name: &str) -> Resolution {
 
 /// Scan `PATH` for executable `uncompose-*` files and return their command
 /// names (prefix stripped), sorted and deduplicated. Names only, by directory
-/// listing — nothing is executed. Also the future basis for the
+/// listing — nothing is executed. Feeds both did-you-mean and the
 /// "External commands (installed):" help section (ADR-0005).
-fn installed_extensions() -> Vec<String> {
+pub fn installed_extensions() -> Vec<String> {
     let Some(path) = std::env::var_os("PATH") else {
         return Vec::new();
     };
