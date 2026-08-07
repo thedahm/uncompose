@@ -84,6 +84,13 @@ Device is auto-detected: CUDA when an NVIDIA GPU is present, CPU otherwise
 minutes on GPU; CPU produces identical stems but takes tens of minutes — correct,
 just slow.
 
+## Extending
+
+Any executable named `uncompose-<command>` on `PATH` becomes a subcommand
+(`uncompose compare` runs `uncompose-compare`). See
+[`docs/extensions.md`](docs/extensions.md) for the extension-author guide and a
+minimal example extension.
+
 ## Requirements
 
 Uncompose is Linux-only for v0.1: NVIDIA CUDA is the primary target with CPU as the
