@@ -22,7 +22,7 @@ use uncompose_core::{
 };
 
 #[derive(Parser)]
-#[command(name = "uncompose", about = "Local-first music source separation")]
+#[command(name = "uncompose", version, about = "Local-first music source separation")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
