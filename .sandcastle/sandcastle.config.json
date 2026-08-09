@@ -1,0 +1,4 @@
+{
+  "repoChecks": "`cargo test` at the repo root runs everything on the Rust side, plus `cargo fmt --all --check` and `cargo clippy --workspace --all-targets -- -D warnings` (mirrors CI; see CONTRIBUTING.md). If you touched the Python engine, also run `uv run pytest` in `engine/` (after `uv sync` there).",
+  "copyToWorktree": ["node_modules", "target"]
+}

@@ -1,3 +1,4 @@
+# sandcastle-kit cd27a04 — synced copy, edit in sandcastle-kit
 FROM node:22-bookworm
 
 # Install system dependencies
@@ -5,7 +6,6 @@ RUN apt-get update && apt-get install -y \
   git \
   curl \
   jq \
-  build-essential \
   && rm -rf /var/lib/apt/lists/*
 
 # Install GitHub CLI
@@ -26,17 +26,16 @@ ARG AGENT_GID=1000
 RUN groupmod -o -g $AGENT_GID node && usermod -o -u $AGENT_UID -g $AGENT_GID -d /home/agent -m -l agent node
 USER ${AGENT_UID}:${AGENT_GID}
 
+# Install Rust toolchain (repo checks: cargo test / fmt / clippy)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+  | sh -s -- -y --default-toolchain stable --component clippy --component rustfmt
+ENV PATH="/home/agent/.cargo/bin:$PATH"
+
 # Install Claude Code CLI
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
-# Contributor toolchain (see CONTRIBUTING.md): stable Rust for the Cargo
-# workspace, uv for engine/. No PyTorch and no GPU stack — tests run against
-# fake-engine / a faked audio-separator interface, never real inference.
-RUN curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal --component rustfmt,clippy
-RUN curl -fsSL https://astral.sh/uv/install.sh | sh
-
-# Add Claude, cargo, and uv to PATH
-ENV PATH="/home/agent/.local/bin:/home/agent/.cargo/bin:$PATH"
+# Add Claude to PATH
+ENV PATH="/home/agent/.local/bin:$PATH"
 
 WORKDIR /home/agent
 

@@ -1,3 +1,5 @@
+<!-- sandcastle-kit cd27a04 — synced copy, edit in sandcastle-kit -->
+
 # TASK
 
 Review the code changes on branch `{{BRANCH}}` and improve code clarity, consistency, and maintainability while preserving exact functionality.
@@ -40,14 +42,14 @@ Review the code changes on branch `{{BRANCH}}` and improve code clarity, consist
 
 5. **Apply project standards**: Follow the coding standards defined in @.sandcastle/CODING_STANDARDS.md
 
-6. **Preserve intended behaviour**: Do not redesign or add features beyond what the issue asked for. But if step 3 shows the implementation does not match the issue's intent, misses edge cases, or has a real defect, fix that directly on the branch — correctness fixes are in scope, cosmetic behaviour drift is not.
+6. **Preserve functionality**: Never change what the code does - only how it does it. All original features, outputs, and behaviors must remain intact.
 
 # EXECUTION
 
 If you find improvements to make:
 
 1. Make the changes directly on this branch
-2. Run `cargo fmt --check`, `cargo clippy --workspace`, and `cargo test --workspace` (plus `uv run pytest` in `engine/` if it changed) to ensure nothing is broken
+2. Run tests and type checking to ensure nothing is broken
 3. Commit describing the refinements
 
 If the code is already clean and well-structured, do nothing.
