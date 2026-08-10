@@ -16,6 +16,11 @@ It needs the three tools installed and on `PATH`:
 uv tool install uncompose uncompose-project uncompose-compare
 ```
 
+Exit 0 means the whole end state landed — the source asset, both derivations,
+*and* the evaluation. If the installed `uncompose-project` writes a manifest
+this script cannot read, it says which expectation broke and exits nonzero
+rather than reporting success over a partial project.
+
 ## The separations are synthetic
 
 **No separation model runs here.** The "stems" are deterministic seeded noise

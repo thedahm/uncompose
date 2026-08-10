@@ -23,15 +23,23 @@ fn demo_script() -> PathBuf {
 
 /// Locate a Python 3 interpreter, or `None` if none is on PATH. The Rust CI
 /// job runs on an image that ships python3; a machine without it simply skips
-/// these checks rather than failing a Rust-only environment.
+/// these checks rather than failing a Rust-only environment. The bare `python`
+/// fallback is only accepted when it reports itself as Python 3 — on a machine
+/// where `python` is Python 2, the script (f-strings, `from __future__ import
+/// annotations`) would fail to compile, and a skip is the honest outcome, not a
+/// failure. Python 2 prints its version to stderr, Python 3 to stdout, so both
+/// streams are inspected.
 fn python3() -> Option<String> {
     for candidate in ["python3", "python"] {
-        let ok = Command::new(candidate)
-            .arg("--version")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-        if ok {
+        let Ok(out) = Command::new(candidate).arg("--version").output() else {
+            continue;
+        };
+        let reported = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        if out.status.success() && reported.trim_start().starts_with("Python 3.") {
             return Some(candidate.to_string());
         }
     }

@@ -36,12 +36,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import random
 import subprocess
 import sys
 import wave
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 # --- Fixture determinism knobs -------------------------------------------
 #
@@ -82,6 +81,10 @@ COMPARE_SCHEMA_URL = (
     "https://uncompose.org/schemas/compare/v0/uncompose.compare.schema.json"
 )
 EVALUATED_AT = "2023-11-14T22:13:20Z"  # fixed instant, matching FINISHED_AT_UNIX
+# Compare mints a fresh ULID per comparison record; the demo pins one so the
+# record's id and its `evaluations/<record-ulid>.json` filename — the real
+# convention (#67 res. 5) — stay reproducible run to run.
+RECORD_ULID = "01HF8Z9K2M4P6R8T0V2X4Z6A8C"
 
 
 def seed_for(label: str) -> int:
@@ -176,45 +179,56 @@ def run_uncompose(args: list[str], **kwargs) -> subprocess.CompletedProcess:
         raise ToolMissing(printable) from exc
 
 
-def find_stem_asset(manifest: dict, run_slug: str, stem: str) -> dict | None:
-    """Best-effort lookup of a stem's manifest asset (id + project ULID).
+class ManifestDrift(Exception):
+    """Raised when the manifest is not the v0 layout this script reads.
 
-    The manifest schema is uncompose-project's; we read it defensively rather
-    than binding to a private layout. An asset is any dict carrying an `id`
-    and a `path` whose basename is `<stem>.wav` under the run's folder.
+    Manifest reads are direct reads of the fixed v0 schema (#67 res. 3), so a
+    shape we don't recognise means the installed uncompose-project has drifted
+    from the contract this demo was written against. Say so loudly rather than
+    guessing — a guess would hand a wrong asset ref to the evaluation import.
     """
+
+
+def resolve_stem_asset(manifest: dict, job_rel: str, stem: str) -> dict:
+    """Resolve a run's `<stem>.wav` to its manifest asset ref (id + project ULID).
+
+    Reads the documented v0 layout directly (#62): top-level `project.id`,
+    `assets[]` of `{id, path, sha256, size, role, …}` with root-relative
+    forward-slash paths, and `derivations[]` carrying `outputs` (asset ids) and
+    a hashed `job: {path, sha256}` reference back to the job.json that was
+    imported. So: find the derivation for this run's job.json, then the output
+    asset whose filename is `<stem>.wav`. Anything unexpected raises
+    ManifestDrift.
+    """
+    try:
+        project_ulid = manifest["project"]["id"]
+        assets = {asset["id"]: asset for asset in manifest["assets"]}
+        derivations = [
+            derivation
+            for derivation in manifest["derivations"]
+            if derivation.get("job", {}).get("path") == job_rel
+        ]
+    except (KeyError, TypeError) as exc:
+        raise ManifestDrift(f"unexpected manifest shape ({exc})") from exc
+
+    if len(derivations) != 1:
+        raise ManifestDrift(
+            f"expected exactly one derivation referencing {job_rel}, "
+            f"found {len(derivations)}"
+        )
+
     wanted = f"{stem}.wav"
-    project_ulid = manifest.get("project") or manifest.get("id")
+    for asset_id in derivations[0].get("outputs", []):
+        asset = assets.get(asset_id)
+        if asset is None:
+            raise ManifestDrift(
+                f"derivation {derivations[0].get('id')} lists output '{asset_id}', "
+                "which is not in assets[]"
+            )
+        if PurePosixPath(asset["path"]).name == wanted:
+            return {"id": asset_id, "project": project_ulid, "path": asset["path"]}
 
-    def walk(node):
-        if isinstance(node, dict):
-            path = node.get("path")
-            if (
-                isinstance(path, str)
-                and os.path.basename(path) == wanted
-                and run_slug in path
-                and ("id" in node or "slug" in node)
-            ):
-                return node
-            for value in node.values():
-                hit = walk(value)
-                if hit:
-                    return hit
-        elif isinstance(node, list):
-            for value in node:
-                hit = walk(value)
-                if hit:
-                    return hit
-        return None
-
-    asset = walk(manifest)
-    if asset is None:
-        return None
-    return {
-        "id": asset.get("id") or asset.get("slug"),
-        "project": project_ulid,
-        "path": asset["path"],
-    }
+    raise ManifestDrift(f"no {wanted} among the outputs of the {job_rel} derivation")
 
 
 def build_comparison_record(project: Path, candidates: list[dict]) -> Path:
@@ -226,6 +240,7 @@ def build_comparison_record(project: Path, candidates: list[dict]) -> Path:
     """
     record = {
         "schema": COMPARE_SCHEMA_URL,
+        "id": RECORD_ULID,
         "completed_at": EVALUATED_AT,
         "preference": candidates[0]["label"],
         "confidence": 0.7,
@@ -233,7 +248,9 @@ def build_comparison_record(project: Path, candidates: list[dict]) -> Path:
     }
     dest = project / "evaluations"
     dest.mkdir(parents=True, exist_ok=True)
-    record_path = dest / "demo-comparison.json"
+    # `<root>/evaluations/<record-ulid>.json` is where the real flow puts it
+    # (#67 res. 5), so the finished tree matches what Compare would have left.
+    record_path = dest / f"{RECORD_ULID}.json"
     record_path.write_text(json.dumps(record, indent=2) + "\n")
     return record_path
 
@@ -271,17 +288,10 @@ def run_demo(workdir: Path) -> None:
     #    then register a comparison of them as an evaluation.
     manifest = json.loads(manifest_path.read_text())
     candidates = []
-    for run in RUNS:
-        asset = find_stem_asset(manifest, run["slug"], "vocals")
-        if asset is None:
-            print(
-                "could not resolve the vocals stems to manifest assets; "
-                "skipping the evaluation step (the derivations still landed).",
-                file=sys.stderr,
-            )
-            break
-        rel = asset["path"]
-        stem_path = Path(rel) if os.path.isabs(rel) else workdir / rel
+    for run, folder in zip(RUNS, job_folders):
+        job_rel = (folder / "job.json").relative_to(workdir).as_posix()
+        asset = resolve_stem_asset(manifest, job_rel, "vocals")
+        stem_path = workdir / asset["path"]
         candidates.append(
             {
                 "label": run["slug"],
@@ -293,20 +303,19 @@ def run_demo(workdir: Path) -> None:
             }
         )
 
-    if len(candidates) == len(RUNS):
-        record_path = build_comparison_record(workdir, candidates)
-        record_abs = str(record_path.resolve())
-        result = run_uncompose(
-            ["project", "import", "--project", str(workdir), record_abs],
-            check=False,
+    record_path = build_comparison_record(workdir, candidates)
+    record_abs = str(record_path.resolve())
+    result = run_uncompose(
+        ["project", "import", "--project", str(workdir), record_abs],
+        check=False,
+    )
+    if result.returncode != 0:
+        print(
+            "\nevaluation import failed; the record is intact. re-register with:\n"
+            f"    uncompose project import {record_abs}",
+            file=sys.stderr,
         )
-        if result.returncode != 0:
-            print(
-                "\nevaluation import failed; the record is intact. re-register with:\n"
-                f"    uncompose project import {record_abs}",
-                file=sys.stderr,
-            )
-            raise SystemExit(result.returncode)
+        raise SystemExit(result.returncode)
 
     # 4. Show the populated project and verify it end to end.
     run_uncompose(["project", "show", "--project", str(workdir)])
@@ -328,6 +337,18 @@ def main(argv: list[str]) -> int:
     workdir = Path(args[0]) if args else Path("uncompose-demo")
     try:
         run_demo(workdir)
+    except ManifestDrift as exc:
+        # Exit 0 means the whole demonstration was built — a source asset, two
+        # derivations, *and* an evaluation (story 42). A project missing the
+        # evaluation is a failure, however far the derivations got.
+        print(
+            f"\ncannot resolve the vocals stems to manifest assets: {exc}\n"
+            "The installed uncompose-project does not write the v0 manifest "
+            "layout this demo reads, so the evaluation cannot be registered.\n"
+            "The derivations that landed are intact; the project is incomplete.",
+            file=sys.stderr,
+        )
+        return 1
     except ToolMissing as exc:
         tool = exc.args[0].split()[0]
         print(

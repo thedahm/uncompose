@@ -577,7 +577,13 @@ fn project_chained_failure_keeps_the_job_and_prints_recovery_last() {
         .expect("running CLI");
     let stderr = String::from_utf8_lossy(&output.stderr);
 
-    assert!(!output.status.success(), "import failure is nonzero");
+    // The import's own exit code is carried, not flattened to a generic 1
+    // (ADR-0006): the stub exits 3, so the CLI must exit 3.
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "the import's own exit code is carried, got:\n{stderr}"
+    );
     // The separation is intact: the job folder and job.json stay untouched.
     let job_json = dir.path().join("song.stems/job.json");
     assert!(job_json.is_file(), "job.json left intact");
