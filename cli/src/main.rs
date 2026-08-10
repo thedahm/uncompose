@@ -5,7 +5,7 @@
 //! 130 on Ctrl+C, nonzero with an engine.log tail on stderr on failure.
 
 use std::io::{ErrorKind, IsTerminal, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command as Process;
 use std::time::Instant;
 
@@ -47,6 +47,10 @@ enum Command {
         /// Output folder (default: `<song>.stems` next to the input)
         #[arg(short = 'o', long = "output")]
         output: Option<PathBuf>,
+        /// Register the finished job in the project at this directory
+        /// (`<dir>/uncompose.project.json`). Pre-flighted before any work.
+        #[arg(long)]
+        project: Option<PathBuf>,
     },
     /// Audition a stem of the last job with mpv (falling back to ffplay)
     Play {
@@ -89,7 +93,8 @@ fn main() -> Result<()> {
             preset,
             device,
             output,
-        } => separate(song, preset, device, output),
+            project,
+        } => separate(song, preset, device, output, project),
         Command::Play { stem } => play(stem),
         Command::Open => open(),
         Command::Models { command } => match command {
@@ -215,11 +220,21 @@ fn separate(
     preset_name: String,
     device: String,
     output: Option<PathBuf>,
+    project: Option<PathBuf>,
 ) -> Result<()> {
     // Survive our own Ctrl+C so we can clean up before exiting. The engine
     // shares our process group and dies on the same SIGINT; the core then
     // sees it was cancelled and removes any partial stems.
     install_sigint_handler();
+
+    // In project mode, catch every foreseeable failure before any engine or
+    // provisioning work: a doomed run must fail in milliseconds, not after
+    // minutes of inference (#67 res. 4). Returns the canonical project root
+    // for the chained registration on the success path.
+    let project_root = match project {
+        Some(dir) => Some(preflight_project(&dir, &song, output.as_deref())?),
+        None => None,
+    };
 
     // ffmpeg is a checked system dependency: fail up front with an install
     // message rather than a cryptic engine stack trace once the run starts.
@@ -285,7 +300,168 @@ fn separate(
         outcome.stems.len(),
         outcome.stems.first(),
     );
+
+    // The separation is complete and job.json (the completion marker) is
+    // written. In project mode, chain the registration so exit 0 means
+    // separated *and* registered (#67 res. 7). A registration failure never
+    // costs the separation: the job folder stays intact.
+    if let Some(root) = project_root {
+        register_job(&root, &outcome.job_folder)?;
+    }
     Ok(())
+}
+
+/// The exact-string project manifest `schema` URL that pre-flight matches
+/// (#67 res. 9). Full strict validation stays uncompose-project's job; here
+/// the URL match is only the "is this a project manifest at all" gate.
+const PROJECT_SCHEMA_URL: &str =
+    "https://uncompose.org/schemas/project/v0/uncompose.project.schema.json";
+
+/// Pre-flight `separate --project` before any engine or provisioning work:
+/// the manifest exists at the fixed location and carries the project schema
+/// URL, `uncompose-project` is on PATH, and both the input and the destination
+/// job folder resolve inside the project root. Returns the canonical project
+/// root for the later chained import.
+fn preflight_project(dir: &Path, song: &Path, output: Option<&Path>) -> Result<PathBuf> {
+    // `--project <dir>` names the project root itself; the manifest must be
+    // exactly `<dir>/uncompose.project.json`, with no upward walk (#67 res. 4).
+    let root = dir
+        .canonicalize()
+        .with_context(|| format!("project directory not found: {}", dir.display()))?;
+    let manifest = root.join("uncompose.project.json");
+    let bytes = std::fs::read(&manifest).map_err(|e| {
+        if e.kind() == ErrorKind::NotFound {
+            anyhow!(
+                "no project manifest at {} \
+                 (--project names the project root itself; no parent directories are searched)",
+                manifest.display()
+            )
+        } else {
+            anyhow!("reading {}: {e}", manifest.display())
+        }
+    })?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes)
+        .with_context(|| format!("{} is not valid JSON", manifest.display()))?;
+    match value.get("schema").and_then(|s| s.as_str()) {
+        Some(PROJECT_SCHEMA_URL) => {}
+        other => bail!(
+            "{} is not a v0 project manifest: expected schema {PROJECT_SCHEMA_URL}, found {}",
+            manifest.display(),
+            other
+                .map(|s| format!("'{s}'"))
+                .unwrap_or_else(|| "no schema field".to_string())
+        ),
+    }
+
+    // The registrar must be runnable, else fail fast with the family install
+    // hint (#67 res. 1) — the same hint dispatch prints on a `project` miss.
+    if !dispatch::on_path("uncompose-project") {
+        bail!(
+            "uncompose-project not found on PATH (required to register with --project)\n\
+             install it with: uv tool install uncompose-project"
+        );
+    }
+
+    // Input inside the root — else import would refuse the job after the fact.
+    let input = song
+        .canonicalize()
+        .with_context(|| format!("input not found: {}", song.display()))?;
+    if !input.starts_with(&root) {
+        bail!(
+            "input {} is outside the project root {}",
+            input.display(),
+            root.display()
+        );
+    }
+
+    // The destination job folder (default `<input>.stems`, or the `-o`
+    // override) inside the root, refused here rather than after inference.
+    let base = uncompose_core::job::job_folder_base(&input, output)?;
+    let base_resolved = resolve_lexically(&base)?;
+    if !base_resolved.starts_with(&root) {
+        bail!(
+            "output folder {} would land outside the project root {}",
+            base.display(),
+            root.display()
+        );
+    }
+
+    Ok(root)
+}
+
+/// Resolve a possibly-not-yet-existing path to an absolute one, so an `-o`
+/// override can be range-checked against the project root before the folder
+/// is created: canonicalize the deepest existing ancestor (the filesystem
+/// resolves its symlinks and `..`), then fold the not-yet-existing
+/// remainder's `.`/`..` components lexically — sound there because nothing on
+/// the remainder exists, so no symlink can bend what `..` means.
+fn resolve_lexically(path: &Path) -> Result<PathBuf> {
+    let abs = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .context("resolving output path against the current directory")?
+            .join(path)
+    };
+    let Some((base, remainder)) = abs.ancestors().find_map(|ancestor| {
+        let canonical = ancestor.canonicalize().ok()?;
+        let remainder = abs.strip_prefix(ancestor).ok()?;
+        Some((canonical, remainder))
+    }) else {
+        // Not even the filesystem root canonicalizes; nothing better to offer.
+        return Ok(abs.clone());
+    };
+    let mut resolved = base;
+    for component in remainder.components() {
+        match component {
+            Component::Normal(name) => resolved.push(name),
+            // Popping at the base's root is a no-op, the kernel's own `/..`
+            // rule.
+            Component::ParentDir => {
+                resolved.pop();
+            }
+            // `.` is dropped; RootDir/Prefix cannot appear in a remainder.
+            _ => {}
+        }
+    }
+    Ok(resolved)
+}
+
+/// Register the finished job with `uncompose-project` via the pinned cross-tool
+/// argv (`uncompose-project import --project <abs-root> <abs-job.json>`, #67
+/// res. 9). On failure the separation is never the casualty: the job folder
+/// and job.json are already written and stay untouched; the import's stderr is
+/// relayed (inherited), and we exit nonzero after printing the exact recovery
+/// command, which idempotency makes safe to rerun (#67 res. 7).
+fn register_job(root: &Path, job_folder: &Path) -> Result<()> {
+    let job_json = job_folder
+        .join("job.json")
+        .canonicalize()
+        .context("locating job.json for registration")?;
+    let status = Process::new("uncompose-project")
+        .arg("import")
+        .arg("--project")
+        .arg(root)
+        .arg(&job_json)
+        .status()
+        .context("running uncompose-project import")?;
+    if status.success() {
+        println!();
+        println!(
+            "✓ registered in {}",
+            root.join("uncompose.project.json").display()
+        );
+        return Ok(());
+    }
+    eprintln!();
+    eprintln!("registration failed; the separation is intact.");
+    eprintln!(
+        "re-register with: uncompose project import {}",
+        job_json.display()
+    );
+    // The status is a failure, so any code here is the import's own nonzero
+    // one; a signal death (no code) exits 1.
+    std::process::exit(status.code().unwrap_or(1));
 }
 
 /// The last job's folder from the pointer `separate` writes on success;
