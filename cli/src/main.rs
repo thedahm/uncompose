@@ -5,7 +5,7 @@
 //! 130 on Ctrl+C, nonzero with an engine.log tail on stderr on failure.
 
 use std::io::{ErrorKind, IsTerminal, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command as Process;
 use std::time::Instant;
 
@@ -389,10 +389,12 @@ fn preflight_project(dir: &Path, song: &Path, output: Option<&Path>) -> Result<P
     Ok(root)
 }
 
-/// Resolve a possibly-not-yet-existing path to an absolute one by
-/// canonicalizing its deepest existing ancestor and re-appending the rest, so
-/// an `-o` override can be range-checked against the project root before the
-/// folder is created (`..` in the existing prefix is normalized away).
+/// Resolve a possibly-not-yet-existing path to an absolute one, so an `-o`
+/// override can be range-checked against the project root before the folder
+/// is created: canonicalize the deepest existing ancestor (the filesystem
+/// resolves its symlinks and `..`), then fold the not-yet-existing
+/// remainder's `.`/`..` components lexically — sound there because nothing on
+/// the remainder exists, so no symlink can bend what `..` means.
 fn resolve_lexically(path: &Path) -> Result<PathBuf> {
     let abs = if path.is_absolute() {
         path.to_path_buf()
@@ -401,25 +403,26 @@ fn resolve_lexically(path: &Path) -> Result<PathBuf> {
             .context("resolving output path against the current directory")?
             .join(path)
     };
-    let mut existing = abs.as_path();
-    let mut tail: Vec<std::ffi::OsString> = Vec::new();
-    let base = loop {
-        match existing.canonicalize() {
-            Ok(canonical) => break canonical,
-            Err(_) => match existing.parent() {
-                Some(parent) => {
-                    if let Some(name) = existing.file_name() {
-                        tail.push(name.to_os_string());
-                    }
-                    existing = parent;
-                }
-                None => return Ok(abs),
-            },
-        }
+    let Some((base, remainder)) = abs.ancestors().find_map(|ancestor| {
+        let canonical = ancestor.canonicalize().ok()?;
+        let remainder = abs.strip_prefix(ancestor).ok()?;
+        Some((canonical, remainder))
+    }) else {
+        // Not even the filesystem root canonicalizes; nothing better to offer.
+        return Ok(abs.clone());
     };
     let mut resolved = base;
-    for name in tail.into_iter().rev() {
-        resolved.push(name);
+    for component in remainder.components() {
+        match component {
+            Component::Normal(name) => resolved.push(name),
+            // Popping at the base's root is a no-op, the kernel's own `/..`
+            // rule.
+            Component::ParentDir => {
+                resolved.pop();
+            }
+            // `.` is dropped; RootDir/Prefix cannot appear in a remainder.
+            _ => {}
+        }
     }
     Ok(resolved)
 }
@@ -456,9 +459,9 @@ fn register_job(root: &Path, job_folder: &Path) -> Result<()> {
         "re-register with: uncompose project import {}",
         job_json.display()
     );
-    // Carry the import's own nonzero code where we have it; a signal death
-    // (no code) still exits nonzero.
-    std::process::exit(status.code().filter(|&c| c != 0).unwrap_or(1));
+    // The status is a failure, so any code here is the import's own nonzero
+    // one; a signal death (no code) exits 1.
+    std::process::exit(status.code().unwrap_or(1));
 }
 
 /// The last job's folder from the pointer `separate` writes on success;

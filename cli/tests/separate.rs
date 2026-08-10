@@ -20,21 +20,35 @@ use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+/// The common case: write `<dir>/<input_name>` and return a `separate`
+/// command for it, wired via [`separate_cmd`] with a stub-ffmpeg-only PATH.
 fn uncompose(dir: &Path, input_name: &str) -> Command {
     let input = dir.join(input_name);
-    std::fs::write(&input, b"not really audio").expect("writing input");
+    write_input(&input);
+    let mut cmd = separate_cmd(dir, &bin_dir_with_ffmpeg(dir));
+    cmd.arg(input);
+    cmd
+}
+
+/// A `separate` command wired to the fake engine and the given hermetic `bin`
+/// dir as the whole PATH (where a test places its stub `ffmpeg` and, for the
+/// `--project` tests, a stub `uncompose-project`), so nothing depends on the
+/// host machine. The model cache and last-job pointer stay inside the test's
+/// tempdir, pre-seeded so the weight auto-fetch sees a warm cache. Callers
+/// append the input positional and flags.
+fn separate_cmd(dir: &Path, bin: &Path) -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_uncompose"));
-    cmd.args(["separate", input.to_str().expect("utf8 path")])
+    cmd.arg("separate")
         .args(["--device", "cpu"])
         .env("UNCOMPOSE_ENGINE_PYTHON", support::fake_engine())
-        // The ffmpeg presence check must not depend on the host machine, so
-        // give the CLI a hermetic PATH with a stub ffmpeg on it.
-        .env("PATH", bin_dir_with_ffmpeg(dir))
-        // Keep the model cache and last-job pointer inside the test's tempdir,
-        // pre-seeded so the weight auto-fetch sees a warm cache.
+        .env("PATH", bin)
         .env("XDG_CACHE_HOME", seeded_cache(dir))
         .env("XDG_STATE_HOME", dir.join("state"));
     cmd
+}
+
+fn write_input(path: &Path) {
+    std::fs::write(path, b"not really audio").expect("writing input");
 }
 
 /// The test's XDG cache dir, with every manifest weight pre-seeded.
@@ -309,20 +323,6 @@ fn sigint_mid_run_kills_the_job_without_a_job_record() {
 const PROJECT_SCHEMA: &str =
     "https://uncompose.org/schemas/project/v0/uncompose.project.schema.json";
 
-/// A `separate` command wired to the fake engine, warm weight cache, and the
-/// given hermetic `bin` dir on PATH (where a test places its stub `ffmpeg` and
-/// stub `uncompose-project`). Callers append the input positional and flags.
-fn separate_cmd(dir: &Path, bin: &Path) -> Command {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_uncompose"));
-    cmd.arg("separate")
-        .args(["--device", "cpu"])
-        .env("UNCOMPOSE_ENGINE_PYTHON", support::fake_engine())
-        .env("PATH", bin)
-        .env("XDG_CACHE_HOME", seeded_cache(dir))
-        .env("XDG_STATE_HOME", dir.join("state"));
-    cmd
-}
-
 /// Write `<root>/uncompose.project.json` carrying `schema` (only field the
 /// pre-flight inspects; strict validation is uncompose-project's job).
 fn write_manifest(root: &Path, schema: &str) {
@@ -348,10 +348,6 @@ fn stub_project(bin: &Path, log: &Path, code: i32, stderr: &str) {
         log = log.display(),
     );
     fake_uv::write_executable(&bin.join("uncompose-project"), &script);
-}
-
-fn write_input(path: &Path) {
-    std::fs::write(path, b"not really audio").expect("writing input");
 }
 
 #[test]
@@ -489,6 +485,38 @@ fn project_out_of_root_output_override_refuses_before_the_engine_runs() {
         "explains why, got:\n{stderr}"
     );
     assert!(!outside.exists(), "no job folder: the engine never ran");
+}
+
+#[test]
+fn project_out_of_root_output_via_dotdot_refuses_before_the_engine_runs() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let bin = bin_dir_with_ffmpeg(dir.path());
+    stub_project(&bin, &dir.path().join("argv.log"), 0, "");
+    let root = dir.path().join("proj");
+    write_manifest(&root, PROJECT_SCHEMA);
+    let input = root.join("song.wav");
+    write_input(&input);
+    // -o escapes the root through a not-yet-existing folder: the path stays
+    // under `proj` textually until the `..`s fold it out to `elsewhere`.
+    let sneaky = root.join("missing/../../elsewhere");
+
+    let output = separate_cmd(dir.path(), &bin)
+        .arg(&input)
+        .args(["--project", root.to_str().unwrap()])
+        .args(["--output", sneaky.to_str().unwrap()])
+        .output()
+        .expect("running CLI");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("outside the project root"),
+        "explains why, got:\n{stderr}"
+    );
+    assert!(
+        !dir.path().join("elsewhere").exists(),
+        "no job folder: the engine never ran"
+    );
 }
 
 #[test]
