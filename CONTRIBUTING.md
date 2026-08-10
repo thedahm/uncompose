@@ -18,6 +18,9 @@ by the Engine Contract (ADR-0001, ADR-0003). Setup:
   all three family packages into a clean environment and drives the vertical slice
   through them. It is deliberately outside `cargo test` (ADR-0007) — the toolchain-heavy
   tests skip unless `uv`, `git`, `cargo`, and `npm` are present.
+- Release gate, manual: [`docs/release-checklist.md`](docs/release-checklist.md) is a
+  docs-alone pass of the brief's definition of done, run by hand once per coordinated
+  release (ADR-0009) — nothing above substitutes for it.
 
 Development is test-first at the Engine Contract seam, and that seam is the only
 substitution point: Rust tests run the real core and CLI against `fake-engine`, a small
