@@ -104,6 +104,14 @@ fn dispatch(token: &str, forwarded: &[OsString]) -> ! {
     }
 }
 
+/// Whether an executable `name` exists anywhere on `PATH`. `separate --project`
+/// pre-flights on this to fail fast before any engine work when the registrar
+/// (`uncompose-project`) is not installed, using the same `PATH` walk dispatch
+/// itself uses so the two never disagree about what is runnable.
+pub fn on_path(name: &str) -> bool {
+    matches!(resolve(name), Resolution::Executable(_))
+}
+
 enum Resolution {
     Executable(PathBuf),
     NotExecutable(PathBuf),
