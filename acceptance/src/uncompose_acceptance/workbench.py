@@ -18,9 +18,10 @@ import selectors
 import signal
 import subprocess
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import IO, Callable, Mapping, Sequence
 
 from .commands import environment
 from .install import Installation, ToolchainMissing
@@ -62,7 +63,7 @@ class Served:
     stderr_path: Path
 
     def stderr(self) -> str:
-        return self.stderr_path.read_text() if self.stderr_path.exists() else ""
+        return _read_stderr(self.stderr_path)
 
     def wait(self, timeout: float = EXIT_TIMEOUT) -> int:
         """Wait for the session to exit itself, as a concluded one does."""
@@ -129,17 +130,19 @@ class BlindVerdict:
 
     blind: bool
     labels: tuple[str, ...]
-    assets: Mapping[str, str]
+    # A record written outside a project names no asset, so a label may lead
+    # nowhere; only a project-launched session fills these in.
+    assets: Mapping[str, str | None]
     paths: Mapping[str, str]
     preferred_label: str | None
-    confidence: object | None
+    confidence: int | None
 
     @property
     def preferred_asset(self) -> str | None:
         return None if self.preferred_label is None else self.assets[self.preferred_label]
 
     @property
-    def candidate_assets(self) -> tuple[str, ...]:
+    def candidate_assets(self) -> tuple[str | None, ...]:
         return tuple(self.assets[label] for label in self.labels)
 
 
@@ -206,7 +209,7 @@ def spawn_served(
 
     def failed(why: str) -> WorkbenchError:
         _kill(process)
-        stderr = stderr_path.read_text() if stderr_path.exists() else ""
+        stderr = _read_stderr(stderr_path)
         return WorkbenchError(f"{_describe(argv)}\n{why}\n--- stderr ---\n{stderr}")
 
     try:
@@ -224,7 +227,12 @@ def _describe(argv: Sequence[str]) -> str:
     return f"$ {' '.join(argv)}"
 
 
-def _first_line(stream, timeout: float) -> str:
+def _read_stderr(path: Path) -> str:
+    """What the session wrote to stderr, or nothing if it never got that far."""
+    return path.read_text() if path.exists() else ""
+
+
+def _first_line(stream: IO[bytes], timeout: float) -> str:
     """The first newline-terminated line, or "" at EOF; raises on the deadline."""
     deadline = time.monotonic() + timeout
     selector = selectors.DefaultSelector()
@@ -257,7 +265,8 @@ def read_verdict(record: dict) -> BlindVerdict:
     """Read a comparison record as what the listener decided, in their labels."""
     candidates = record["candidates"]
     labels = tuple(candidate["label"] for candidate in candidates)
-    preferred = record.get("result", {}).get("preference")
+    result = record.get("result", {})
+    preferred = result.get("preference")
     if preferred is not None and preferred not in labels:
         raise WorkbenchError(
             f"the record prefers {preferred!r}, which is none of its candidates {labels}"
@@ -265,10 +274,10 @@ def read_verdict(record: dict) -> BlindVerdict:
     return BlindVerdict(
         blind=record["mode"] != "ab",
         labels=labels,
-        assets={c["label"]: c.get("asset") for c in candidates},
-        paths={c["label"]: c["path"] for c in candidates},
+        assets={candidate["label"]: candidate.get("asset") for candidate in candidates},
+        paths={candidate["label"]: candidate["path"] for candidate in candidates},
         preferred_label=preferred,
-        confidence=record.get("result", {}).get("confidence"),
+        confidence=result.get("confidence"),
     )
 
 
@@ -299,7 +308,7 @@ def drive_blind_session(
         # write the note and pin it on the live candidate with Enter.
         stage = page.get_by_test_id("stage-waveform")
         box = stage.bounding_box()
-        page.mouse.click(box["x"] + box["width"] * 0.5, box["y"] + box["height"] / 2)
+        page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
         composer = page.get_by_test_id("composer")
         composer.click()
         composer.fill(pin_text)
@@ -338,38 +347,32 @@ def drive_blind_session(
         )
 
 
-class _chromium:
+@contextmanager
+def _chromium(timeout_ms: int):
     """A Chromium page, or a stated missing browser — never a stray process."""
+    try:
+        from playwright.sync_api import Error as PlaywrightError
+        from playwright.sync_api import sync_playwright
+    except ImportError as missing:
+        raise ToolchainMissing(
+            "playwright is not installed; the browser leg needs it "
+            "(`uv sync` in acceptance/)"
+        ) from missing
 
-    def __init__(self, timeout_ms: int) -> None:
-        self.timeout_ms = timeout_ms
-
-    def __enter__(self):
+    with sync_playwright() as playwright:
         try:
-            from playwright.sync_api import Error as PlaywrightError
-            from playwright.sync_api import sync_playwright
-        except ImportError as missing:
-            raise ToolchainMissing(
-                "playwright is not installed; the browser leg needs it "
-                "(`uv sync` in acceptance/)"
-            ) from missing
-
-        self._playwright = sync_playwright().start()
-        try:
-            self._browser = self._playwright.chromium.launch()
+            browser = playwright.chromium.launch()
         except PlaywrightError as unlaunchable:
-            self._playwright.stop()
             raise ToolchainMissing(
                 f"chromium could not be launched ({unlaunchable}); "
                 "install it with `uv run playwright install chromium`"
             ) from unlaunchable
-        page = self._browser.new_page()
-        page.set_default_timeout(self.timeout_ms)
-        return page
-
-    def __exit__(self, *exc_info) -> None:
-        self._browser.close()
-        self._playwright.stop()
+        try:
+            page = browser.new_page()
+            page.set_default_timeout(timeout_ms)
+            yield page
+        finally:
+            browser.close()
 
 
 def run_workbench_leg(
@@ -377,7 +380,7 @@ def run_workbench_leg(
     project: Path,
     refs: Sequence[str],
     *,
-    driver=drive_blind_session,
+    driver: Callable[[str], BrowserRun] = drive_blind_session,
 ) -> WorkbenchLeg:
     """Launch a blind session over `refs`, drive it, and wait for it to close.
 

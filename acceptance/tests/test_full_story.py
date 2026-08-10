@@ -14,7 +14,7 @@ file, the manifest, and exit codes.
 import hashlib
 import json
 
-from uncompose_acceptance.workbench import CONFIDENCE, PIN_TEXT, PREFERRED_LABEL
+from uncompose_acceptance.workbench import LOOPBACK
 
 
 def sha256(path):
@@ -27,7 +27,7 @@ def test_the_session_served_the_workbench_and_closed_itself_on_the_verdict(whole
     # registered, which is the whole handover in one exit code.
     assert whole_story.leg.returncode == 0, whole_story.describe()
     assert whole_story.leg.browser.registered, whole_story.describe()
-    assert whole_story.leg.served.url.startswith("http://127.0.0.1:")
+    assert whole_story.leg.served.url.startswith(LOOPBACK)
 
 
 def test_the_record_landed_in_the_projects_evaluations_folder(whole_story):
@@ -59,11 +59,14 @@ def test_the_page_named_neither_candidate_until_the_reveal(whole_story):
 
 def test_the_pin_and_the_verdict_the_listener_engraved_are_in_the_record(whole_story):
     record = whole_story.record()
+    # What was engraved at the page, not what the leg's defaults say it would
+    # have been.
+    driven = whole_story.leg.browser
 
     assert record["mode"] == "ab-blind-randomized"
-    assert [observation["text"] for observation in record["observations"]] == [PIN_TEXT]
-    assert record["result"]["preference"] == PREFERRED_LABEL
-    assert record["result"]["confidence"] == CONFIDENCE
+    assert [note["text"] for note in record["observations"]] == [driven.pin_text]
+    assert record["result"]["preference"] == driven.preferred_label
+    assert record["result"]["confidence"] == driven.confidence
     # A project-launched record: every candidate names the asset it came from,
     # which is what lets the manifest register the verdict at all.
     assert all(candidate["asset"] for candidate in record["candidates"])
@@ -106,7 +109,8 @@ def test_the_evaluation_compares_the_two_runs_takes_of_the_same_stem(whole_story
 
     compared = set(evaluation["candidates"])
     assert len(compared) == 2
-    assert {assets[asset_id]["path"].rsplit("/", 1)[-1] for asset_id in compared} == {"vocals.wav"}
+    filenames = {assets[asset_id]["path"].rsplit("/", 1)[-1] for asset_id in compared}
+    assert filenames == {"vocals.wav"}
     # One take from each run: a verdict over two outputs of the same derivation
     # would compare a run against itself.
     producers = [

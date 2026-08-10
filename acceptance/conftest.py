@@ -9,6 +9,7 @@ internals.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable, TypeVar
 
 import pytest
 
@@ -24,6 +25,8 @@ from uncompose_acceptance.sources import AcceptanceConfig
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+Built = TypeVar("Built")
+
 
 @pytest.fixture(scope="session")
 def repo_root() -> Path:
@@ -35,7 +38,7 @@ def config() -> AcceptanceConfig:
     return AcceptanceConfig.from_env(checkout=REPO_ROOT)
 
 
-def gated(config: AcceptanceConfig, build):
+def gated(config: AcceptanceConfig, build: Callable[[], Built]) -> Built:
     """Run one step of the gate, deciding what a missing toolchain means.
 
     A machine without what the step needs skips rather than fails — until

@@ -8,12 +8,14 @@ the same way `test_commands.py` stands in for an installation.
 """
 
 import json
+import shlex
 from pathlib import Path
 
 import pytest
 
 from uncompose_acceptance.workbench import (
     LOOPBACK,
+    BrowserRun,
     WorkbenchError,
     candidate_refs,
     read_verdict,
@@ -43,7 +45,13 @@ def manifest(*derivations, assets=None):
 
 
 TWO_RUNS = manifest(
-    ("htdemucs-6s", [("vocals", "runs/htdemucs-6s/vocals.wav"), ("drums", "runs/htdemucs-6s/drums.wav")]),
+    (
+        "htdemucs-6s",
+        [
+            ("vocals", "runs/htdemucs-6s/vocals.wav"),
+            ("drums", "runs/htdemucs-6s/drums.wav"),
+        ],
+    ),
     ("roformer-2stem", [("vocals-2", "runs/roformer-2stem/vocals.wav")]),
 )
 
@@ -153,13 +161,14 @@ def fake_session(installation, *, closing="exit 0", stderr=""):
     driver's conclude before exiting — so the leg's launch, its capture of the
     URL, and its wait for the exit are all exercised without a wheel.
     """
+    complain = f"echo {shlex.quote(stderr)} >&2" if stderr else ":"
     stub = installation.bin / "uncompose"
     stub.write_text(
         "#!/bin/sh\n"
         'printf "%s\\n" "$@" > "$HOME/argv"\n'
         f'echo "{LOOPBACK}9000/?token=stub"\n'
         'while [ ! -f "$HOME/concluded" ]; do sleep 0.05; done\n'
-        f'{f"echo {stderr!r} >&2" if stderr else ""}\n'
+        f"{complain}\n"
         f"{closing}\n"
     )
     stub.chmod(0o755)
@@ -168,7 +177,6 @@ def fake_session(installation, *, closing="exit 0", stderr=""):
 
 def fake_driver(installation, record_name="01HF8Z9K2M4P6R8T0V2X4Z6A8C.json"):
     """A driver that concludes the session and reports what the page showed."""
-    from uncompose_acceptance.workbench import BrowserRun
 
     def drive(url):
         (installation.home / "concluded").write_text("")

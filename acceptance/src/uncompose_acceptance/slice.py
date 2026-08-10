@@ -59,7 +59,7 @@ class CliSlice:
     init: CommandResult
     imports: Mapping[str, CommandResult]
     show_json: CommandResult
-    shown: dict
+    manifest_when_shown: dict
     verify: CommandResult
     steps: tuple[CommandResult, ...]
     installation: Installation
@@ -117,7 +117,7 @@ def run_cli_slice(
         # What was on disk when `show` ran: the browser leg registers an
         # evaluation into this same manifest afterwards, so comparing the two
         # has to be a comparison against that moment.
-        shown=json.loads(manifest_path.read_text()),
+        manifest_when_shown=json.loads(manifest_path.read_text()),
         verify=verify,
         steps=tuple(steps),
         installation=installation,
@@ -172,10 +172,9 @@ def tell_whole_story(cli_slice: CliSlice) -> WholeStory:
     def cli(*argv: str) -> CommandResult:
         return run(installation, list(argv), cwd=project)
 
-    return WholeStory(
-        cli=cli_slice,
-        leg=leg,
-        refs=refs,
-        verify=cli("uncompose-project", "verify", "--project", str(project)),
-        show_json=cli("uncompose", "project", "show", "--json", "--project", str(project)),
-    )
+    # Verify before show, as the CLI leg does: `verify` stamps the manifest, so
+    # only a `show` that follows it prints a settled one.
+    verify = cli("uncompose-project", "verify", "--project", str(project))
+    show_json = cli("uncompose", "project", "show", "--json", "--project", str(project))
+
+    return WholeStory(cli=cli_slice, leg=leg, refs=refs, verify=verify, show_json=show_json)
