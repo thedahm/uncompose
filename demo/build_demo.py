@@ -162,15 +162,16 @@ class ToolMissing(Exception):
 
 
 def run_uncompose(args: list[str], **kwargs) -> subprocess.CompletedProcess:
-    """Run `uncompose <args>`, echoing the command first.
+    """Run `uncompose <args>` (checked unless `check=False`), echoing it first.
 
     A missing `uncompose` binary raises ToolMissing so the caller can print
     the install hint rather than a raw traceback.
     """
+    kwargs.setdefault("check", True)
     printable = " ".join(["uncompose", *args])
     print(f"$ {printable}")
     try:
-        return subprocess.run(["uncompose", *args], check=True, **kwargs)
+        return subprocess.run(["uncompose", *args], **kwargs)
     except FileNotFoundError as exc:
         raise ToolMissing(printable) from exc
 
@@ -302,7 +303,7 @@ def run_demo(workdir: Path) -> None:
         if result.returncode != 0:
             print(
                 "\nevaluation import failed; the record is intact. re-register with:\n"
-                f"    uncompose project import {record_path.resolve()}",
+                f"    uncompose project import {record_abs}",
                 file=sys.stderr,
             )
             raise SystemExit(result.returncode)
