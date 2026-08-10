@@ -1,0 +1,11 @@
+# Cloudflare Pages custom headers (https://developers.cloudflare.com/pages/configuration/headers/).
+#
+# Static hosts generally infer Content-Type from the .json extension already, but the
+# schema URLs are the format's own identifiers (uncompose#64) and third-party validators
+# fetch them directly, so the type is pinned here rather than left to inference.
+
+/schemas/project/v0/uncompose.project.schema.json
+  Content-Type: application/json
+
+/schemas/compare/v0/uncompose.compare.schema.json
+  Content-Type: application/json

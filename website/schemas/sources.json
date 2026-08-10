@@ -1,0 +1,23 @@
+{
+  "$comment": "Provenance for the committed schema copies served from site/schemas/. Not served itself — see README.md in this directory. Non-authoritative: the source of truth is each tool repo's own schema plus its conformance tests.",
+  "schemas": [
+    {
+      "served_path": "site/schemas/project/v0/uncompose.project.schema.json",
+      "identifier_url": "https://uncompose.org/schemas/project/v0/uncompose.project.schema.json",
+      "repo": "thedahm/uncompose-project",
+      "source_path": "schemas/project/v0/uncompose.project.schema.json",
+      "ref": "d178b5de5f4eb171e1ef1fcecb9bbd917be70bd4",
+      "ref_kind": "commit",
+      "note": "Pinned pre-v0.1.0: uncompose-project has not tagged a release yet, so the ref is the commit the copy was pulled from rather than a release tag. Refresh to the release tag at each tool release (uncompose#92 story 25)."
+    },
+    {
+      "served_path": "site/schemas/compare/v0/uncompose.compare.schema.json",
+      "identifier_url": "https://uncompose.org/schemas/compare/v0/uncompose.compare.schema.json",
+      "repo": "thedahm/uncompose-compare",
+      "source_path": "schemas/compare/v0/uncompose.compare.schema.json",
+      "ref": "9e7fd4aae87b8199d3a23142ef3d02ce66424f8e",
+      "ref_kind": "commit",
+      "note": "Pinned pre-v0.1.0: uncompose-compare has not tagged a release yet, so the ref is the commit the copy was pulled from rather than a release tag. Refresh to the release tag at each tool release (uncompose#92 story 25)."
+    }
+  ]
+}

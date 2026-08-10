@@ -13,3 +13,4 @@ uncompose#64).
 
 - [0001 — Static HTML and CSS, no build step, `site/` is what ships](0001-static-html-no-build-step.md)
 - [0002 — Cloudflare Pages on push to `main`, and uncompose.cc as a permanent redirect](0002-cloudflare-pages-and-cc-redirect.md)
+- [0003 — Schema hosting as committed, pinned copies; a static-site CI lane replacing the family's Rust lanes](0003-schema-hosting-and-static-site-ci.md)

@@ -13,7 +13,8 @@ promise the tools make.
 
 ```
 site/     what is published — the deploy's output directory, nothing else is served
-tests/    check_site.py, the content and zero-tracking checks CI runs
+schemas/  provenance for the schema copies in site/schemas/ — repo docs, never published
+tests/    check_site.py, check_html.py, check_links.py, check_schemas.py — what CI runs
 docs/     ADRs and the deployment runbook (repo docs, never published)
 ```
 
@@ -24,7 +25,10 @@ There is nothing to install and nothing to build. Edit `site/index.html` and
 
 ```sh
 python3 -m http.server -d site 8000    # http://localhost:8000
-python3 tests/check_site.py            # what CI runs
+python3 tests/check_site.py            # content and zero-tracking — what CI runs
+python3 tests/check_html.py            # HTML structural validity
+python3 tests/check_links.py           # internal links and resources resolve
+python3 tests/check_schemas.py         # schemas present, valid, and matching their pin
 ```
 
 ## Deploying
@@ -37,9 +41,10 @@ setup they depend on is written down step by step in [`docs/deploy.md`](docs/dep
 
 ## Status
 
-Pre-v0.1, like the rest of the family. The site's first job is the landing page; serving
-the family's JSON Schemas at their identifier URLs lands next
-([uncompose#101](https://github.com/thedahm/uncompose/issues/101)).
+Pre-v0.1, like the rest of the family. The landing page and the family's JSON Schemas
+(served at their identifier URLs under `/schemas/`, see
+[`schemas/README.md`](schemas/README.md) and
+[ADR-0003](docs/adr/0003-schema-hosting-and-static-site-ci.md)) are both in place.
 
 ## Family
 

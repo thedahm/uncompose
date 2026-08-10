@@ -1,4 +1,4 @@
 {
-  "repoChecks": "`python3 tests/check_site.py` is the whole check suite and mirrors CI (see CONTRIBUTING.md). There is nothing to install and nothing to build.",
+  "repoChecks": "`python3 tests/check_site.py`, `check_html.py`, `check_links.py`, and `check_schemas.py` are the whole check suite and mirror CI (see CONTRIBUTING.md). There is nothing to install and nothing to build; `check_schemas.py` needs network access to verify the served schemas against their pinned source refs.",
   "copyToWorktree": []
 }
