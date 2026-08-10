@@ -78,12 +78,17 @@ the redirect rather than dead-ending.
 
 ## 4. Verify
 
+Both halves of a redirect matter — the status code and where it points — and `location:`
+is not among the first response headers, so filter for it rather than taking the head:
+
 ```sh
-curl -sI https://uncompose.org/            | head -1   # HTTP/2 200
-curl -sI https://www.uncompose.org/        | head -2   # 301 → https://uncompose.org/
-curl -sI https://uncompose.cc/             | head -2   # 301 → https://uncompose.org/
-curl -sI 'https://uncompose.cc/a/b?c=1'    | head -2   # 301 → https://uncompose.org/a/b?c=1
-curl -sI https://www.uncompose.cc/         | head -2   # 301 → https://uncompose.org/
+check() { curl -sI "$1" | grep -iE '^(HTTP/|location:)'; }
+
+check https://uncompose.org/             # 200
+check https://www.uncompose.org/         # 301 → https://uncompose.org/
+check https://uncompose.cc/              # 301 → https://uncompose.org/
+check 'https://uncompose.cc/a/b?c=1'     # 301 → https://uncompose.org/a/b?c=1
+check https://www.uncompose.cc/          # 301 → https://uncompose.org/
 ```
 
 Every `.cc` response must be `301` (permanent), not `302`, and must carry the path and

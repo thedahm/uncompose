@@ -3,7 +3,7 @@
 The Uncompose family's front door: one static page, no build step, no tracking.
 
 This is the canonical agent-instructions file for `uncompose-website`, per Uncompose
-family convention. `CLAUDE.md` points here.
+family convention. `CLAUDE.md` imports this file rather than restating it.
 
 ## Agent skills
 

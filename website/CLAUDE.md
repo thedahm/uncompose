@@ -1,22 +1,6 @@
 # uncompose-website
 
-Agent instructions for this repo are canonical in [`AGENTS.md`](AGENTS.md). This file
-points there and keeps the Agent skills block below in sync with it.
+Agent instructions for this repo are canonical in [`AGENTS.md`](AGENTS.md) — read it. This
+file only points there, so the two can never disagree.
 
-## Agent skills
-
-### Issue tracker
-
-Issues live in GitHub Issues for `thedahm/uncompose-website` (via `gh`). See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Default label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: `CONTEXT.md` + `docs/adr/` at repo root. See `docs/agents/domain.md`.
-
-### AFK workflow
-
-Sandcastle drains `ready-for-agent` tickets on named branches; humans merge. See `docs/agents/afk-workflow.md`.
+@AGENTS.md

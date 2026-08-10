@@ -21,6 +21,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SITE = ROOT / "site"
+PAGE = "index.html"
 
 # The brief's one-line definitions (uncompose#55), verbatim. The landing page
 # quotes these; drift here is drift from the ecosystem's own definition.
@@ -74,6 +75,20 @@ def is_off_origin(value: str) -> bool:
     return bool(OFF_ORIGIN.match(value)) and not value.startswith("data:")
 
 
+def off_origin_urls(attr: str, value: str) -> list[str]:
+    """The off-origin URLs one attribute would fetch.
+
+    Most attributes hold a single URL; `srcset` holds several, each a URL followed
+    by a descriptor ("small.png 1x, https://cdn/large.png 2x"), so one off-origin
+    candidate among same-origin ones has to be caught on its own.
+    """
+    if attr == "srcset":
+        urls = [candidate.split()[0] for candidate in value.split(",") if candidate.strip()]
+    else:
+        urls = [value]
+    return [url for url in urls if is_off_origin(url)]
+
+
 class Page(HTMLParser):
     """Collects what a visitor gets: the text, the links, and the requests made."""
 
@@ -88,20 +103,23 @@ class Page(HTMLParser):
         if tag == "body":
             self._in_body = True
         if tag in FORBIDDEN_TAGS:
-            self.violations.append(f"index.html: <{tag}> — the page runs and embeds nothing")
+            self.violations.append(f"{PAGE}: <{tag}> — the page runs and embeds nothing")
 
-        pairs = dict(attrs)
-        for name, value in pairs.items():
+        attributes = dict(attrs)
+        for name, value in attributes.items():
             if not value:
                 continue
-            if name in FETCHING_ATTRS and is_off_origin(value):
-                self.violations.append(f"index.html: <{tag} {name}> fetches off-origin: {value}")
+            if name in FETCHING_ATTRS:
+                for url in off_origin_urls(name, value):
+                    self.violations.append(
+                        f"{PAGE}: <{tag} {name}> fetches off-origin: {url}"
+                    )
             if name == "style" and "url(" in value:
-                self.violations.append(f"index.html: inline style fetches a resource: {value}")
+                self.violations.append(f"{PAGE}: inline style fetches a resource: {value}")
 
-        href = (pairs.get("href") or "").strip()
+        href = (attributes.get("href") or "").strip()
         if tag == "link" and is_off_origin(href):
-            self.violations.append(f"index.html: <link href> is off-origin: {href}")
+            self.violations.append(f"{PAGE}: <link href> is off-origin: {href}")
         if tag == "a" and href:
             self.links.append(href)
 
@@ -130,19 +148,21 @@ def check_page(html: str) -> list[str]:
 
     for name, definition in TOOL_DEFINITIONS:
         if definition not in prose:
-            violations.append(f"index.html: missing the brief's definition of {name}: {definition!r}")
+            violations.append(
+                f"{PAGE}: missing the brief's definition of {name}: {definition!r}"
+            )
 
     for command in COMMAND_PICTURE:
         if command not in page.text:
-            violations.append(f"index.html: missing command-picture line: {command!r}")
+            violations.append(f"{PAGE}: missing command-picture line: {command!r}")
 
     for claim in LOCAL_FIRST_CLAIMS:
         if claim.lower() not in prose.lower():
-            violations.append(f"index.html: missing local-first copy: {claim!r}")
+            violations.append(f"{PAGE}: missing local-first copy: {claim!r}")
 
     for link in REQUIRED_LINKS:
         if link not in page.links:
-            violations.append(f"index.html: missing link: {link}")
+            violations.append(f"{PAGE}: missing link: {link}")
 
     return violations
 
@@ -171,11 +191,15 @@ def check_no_toolchain() -> list[str]:
         "next.config.js",
         "vite.config.js",
     ]
-    return [f"{name}: a build toolchain has no place in this repo" for name in forbidden if (ROOT / name).exists()]
+    return [
+        f"{name}: a build toolchain has no place in this repo"
+        for name in forbidden
+        if (ROOT / name).exists()
+    ]
 
 
 def main() -> int:
-    index = SITE / "index.html"
+    index = SITE / PAGE
     if not index.is_file():
         print(f"missing {index.relative_to(ROOT)}")
         return 1
