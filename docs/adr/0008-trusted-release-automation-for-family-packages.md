@@ -4,9 +4,9 @@ The family ships four PyPI packages from three repositories, and until now only 
 one could publish. M6 gives `uncompose-project` and `uncompose-compare` the same
 ability ([#92](https://github.com/thedahm/uncompose/issues/92) stories 21–24, slice
 [#97](https://github.com/thedahm/uncompose/issues/97)). This ADR records the shape they
-share, so the fifth package does not have to decide it again and a reviewer can check
-any family release against one description. Each repo's own ADR records what it does
-with that shape — `uncompose-project` ADR-0013, `uncompose-compare` ADR-0011.
+share, so a future fifth package does not have to decide it again and a reviewer can
+check any family release against one description. Each repo's own ADR records what it
+does with that shape — `uncompose-project` ADR-0013, `uncompose-compare` ADR-0011.
 
 ## The shape
 
@@ -59,19 +59,27 @@ with that shape — `uncompose-project` ADR-0013, `uncompose-compare` ADR-0011.
 - **This repo's release predates the rest of the shape.** `Release` here publishes two
   packages from one tag (the CLI wheel and `uncompose-engine`), with `skip-existing` so
   a rerun after a partial publish uploads only what is missing — a two-package concern
-  the extensions do not have. It does not yet check the tag against the source version,
-  and it does not yet emit attestations. Bringing it in line is worth doing and is not
-  part of M6, which changes this repo only for the acceptance test, checklist, and docs.
+  the extensions do not have, and the reason it needs a publish environment per package
+  rather than a single one. It reaches the same single version by a different route:
+  three static declarations (Cargo, root `pyproject.toml`, `engine/pyproject.toml`) that
+  `core/tests/version_sync.rs` fails the build over when they drift (ADR-0004), rather
+  than one derived from another. It also does not yet check the tag against that
+  version, call CI as its gate, prove the built wheel before publishing, or emit
+  attestations.
+  Bringing it in line is worth doing and is not part of M6, which changes this repo only
+  for the acceptance test, checklist, and docs.
 
 ## Consequences
 
 - Each index must be told which workflow it trusts — owner, repository, workflow file,
   environment — once per package per index. That is a human step with credentials no
-  agent in this ecosystem holds; each repo's `docs/releasing.md` spells out the fields.
-  Until it is done, the release builds and proves the wheel and then fails at publish.
+  agent in this ecosystem holds; each extension repo's `docs/releasing.md` spells out
+  the fields. Until it is done, the release builds and proves the wheel and then fails
+  at publish.
 - Renaming a release workflow file, or an environment, breaks publishing until the
   trusted publisher is updated. That is the mechanism working: the workflow's identity
   is the credential.
-- The acceptance gate's `pypi` mode ([ADR-0007](0007-acceptance-test-installed-artifact-seam.md))
-  is what checks that a release actually produced installable artifacts. Trusted
+- The acceptance gate's `pypi` mode
+  ([ADR-0007](0007-acceptance-test-installed-artifact-seam.md)) is what checks that a
+  release actually produced installable artifacts. Trusted
   publishing makes a wheel's provenance checkable; it does not make the wheel good.
