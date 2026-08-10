@@ -59,6 +59,6 @@ def write_slice_fixtures(root: Path, *, repo_root: Path) -> SliceFixtures:
             job_json=folder / "job.json",
             stems=tuple(run["stems"]),
         )
-        for run, folder in zip(demo.RUNS, job_folders)
+        for run, folder in zip(demo.RUNS, job_folders, strict=True)
     )
     return SliceFixtures(root=root, source=root / demo.SOURCE_NAME, runs=runs)

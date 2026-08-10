@@ -46,5 +46,6 @@ def test_every_job_record_names_its_source_by_a_root_relative_path(tmp_path, rep
 def test_the_two_runs_produce_the_stems_the_manifest_should_end_up_with(tmp_path, repo_root):
     fixtures = write_slice_fixtures(tmp_path, repo_root=repo_root)
 
-    assert fixtures.stem_count == sum(len(run.stems) for run in fixtures.runs)
+    written = [path for run in fixtures.runs for path in run.job_folder.glob("*.wav")]
+    assert fixtures.stem_count == len(written)
     assert fixtures.stem_count > 2, "a one-stem-each pair would not exercise much"

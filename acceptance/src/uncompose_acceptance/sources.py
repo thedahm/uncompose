@@ -103,7 +103,7 @@ class AcceptanceConfig:
             )
         return cls(
             mode=mode,
-            checkout=Path(env.get("UNCOMPOSE_ACCEPTANCE_CHECKOUT", str(checkout))),
+            checkout=Path(env.get("UNCOMPOSE_ACCEPTANCE_CHECKOUT", checkout)),
             project_url=env.get("UNCOMPOSE_ACCEPTANCE_PROJECT_URL", PROJECT_URL),
             project_ref=env.get("UNCOMPOSE_ACCEPTANCE_PROJECT_REF", "main"),
             compare_url=env.get("UNCOMPOSE_ACCEPTANCE_COMPARE_URL", COMPARE_URL),

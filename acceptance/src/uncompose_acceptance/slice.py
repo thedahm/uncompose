@@ -23,12 +23,19 @@ from .install import Installation
 
 MANIFEST_NAME = "uncompose.project.json"
 
-# The two ways an extension is reached (uncompose ADR-0005): through the root
-# CLI's dispatch, and as the standalone command the wheel installs.
-DISPATCH_FORMS: Mapping[str, tuple[str, ...]] = {
-    "uncompose project": ("uncompose", "project"),
-    "uncompose-project": ("uncompose-project",),
-}
+EXTENSIONS = ("project", "compare")
+
+
+def dispatch_forms(extension: str) -> dict[str, tuple[str, ...]]:
+    """The two ways an extension is reached (uncompose ADR-0005), dispatch first.
+
+    Keyed by the command line a user would type — the same string the slice
+    files each version result under.
+    """
+    return {
+        f"uncompose {extension}": ("uncompose", extension),
+        f"uncompose-{extension}": (f"uncompose-{extension}",),
+    }
 
 
 @dataclass(frozen=True)
@@ -62,20 +69,21 @@ def run_cli_slice(
         steps.append(result)
         return result
 
-    versions = {
-        "uncompose": cli("uncompose", "--version"),
-        **{name: cli(*form, "--version") for name, form in DISPATCH_FORMS.items()},
-        "uncompose compare": cli("uncompose", "compare", "--version"),
-        "uncompose-compare": cli("uncompose-compare", "--version"),
-    }
+    versions = {"uncompose": cli("uncompose", "--version")}
+    for extension in EXTENSIONS:
+        for name, form in dispatch_forms(extension).items():
+            versions[name] = cli(*form, "--version")
 
     init = cli("uncompose", "project", "init", "--project", str(project))
 
     # One import per entry point, so a form that never reaches the manifest
-    # cannot hide behind the other.
+    # cannot hide behind the other; the strict zip refuses a run without a form
+    # rather than quietly leaving it unimported.
     imports = {
         fixture.slug: cli(*form, "import", "--project", str(project), str(fixture.job_json))
-        for fixture, form in zip(fixtures.runs, DISPATCH_FORMS.values())
+        for fixture, form in zip(
+            fixtures.runs, dispatch_forms("project").values(), strict=True
+        )
     }
 
     # `verify` stamps `last_verified` on every asset that passes, so it is a

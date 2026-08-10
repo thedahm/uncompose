@@ -60,8 +60,8 @@ class Installation:
     commits: Mapping[str, str]
 
 
-def missing_tools(mode: str, which: Callable[[str], str | None] = shutil.which) -> tuple[str, ...]:
-    return tuple(tool for tool in TOOLCHAIN[mode] if which(tool) is None)
+def missing_tools(mode: str) -> tuple[str, ...]:
+    return tuple(tool for tool in TOOLCHAIN[mode] if shutil.which(tool) is None)
 
 
 def _log(message: str) -> None:
@@ -116,16 +116,18 @@ def install_environment(
     if missing:
         needed = ", ".join(TOOLCHAIN[config.mode])
         raise ToolchainMissing(
-            f"{', '.join(missing)} not on PATH; the '{config.mode}' wheel-sourcing mode needs {needed}"
+            f"{', '.join(missing)} not on PATH; "
+            f"the '{config.mode}' wheel-sourcing mode needs {needed}"
         )
 
     env = workdir / "env"
     log(f"creating a clean environment at {env}")
     _run(["uv", "venv", "--quiet", env])
 
+    sources = config.sources()
     targets: list[str] = []
     commits: dict[str, str] = {}
-    for source in config.sources():
+    for source in sources:
         target, commit = _install_target(source, workdir, log)
         targets.append(target)
         if commit is not None:
@@ -142,6 +144,6 @@ def install_environment(
         bin=bin_dir,
         path=":".join([str(bin_dir), *SYSTEM_PATH]),
         home=home,
-        sources=tuple(config.sources()),
+        sources=sources,
         commits=commits,
     )

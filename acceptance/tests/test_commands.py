@@ -10,7 +10,8 @@ from uncompose_acceptance.commands import run
 from uncompose_acceptance.install import SYSTEM_PATH, Installation
 
 
-def installation(tmp_path) -> Installation:
+def empty_installation(tmp_path) -> Installation:
+    """An installation with nothing installed into it — no wheels, no toolchain."""
     bin_dir = tmp_path / "env" / "bin"
     bin_dir.mkdir(parents=True)
     home = tmp_path / "home"
@@ -26,7 +27,7 @@ def installation(tmp_path) -> Installation:
 
 
 def test_a_command_the_installation_lacks_reports_the_launcher_exit_code(tmp_path):
-    result = run(installation(tmp_path), ["uncompose-nothing", "--version"])
+    result = run(empty_installation(tmp_path), ["uncompose-nothing", "--version"])
 
     assert result.returncode == 127
     assert "uncompose-nothing" in result.stderr
@@ -34,12 +35,12 @@ def test_a_command_the_installation_lacks_reports_the_launcher_exit_code(tmp_pat
 
 
 def test_a_command_the_installation_has_runs_under_its_own_path(tmp_path):
-    install = installation(tmp_path)
-    script = install.bin / "uncompose-echo"
+    installation = empty_installation(tmp_path)
+    script = installation.bin / "uncompose-echo"
     script.write_text('#!/bin/sh\necho "$PATH"\n')
     script.chmod(0o755)
 
-    result = run(install, ["uncompose-echo"])
+    result = run(installation, ["uncompose-echo"])
 
     assert result.ok, result.describe()
-    assert result.stdout.strip() == install.path
+    assert result.stdout.strip() == installation.path
