@@ -36,41 +36,35 @@ class Page(HTMLParser):
         self.has_charset = False
         self.title_text = ""
         self._in_title = False
-        self.ids: dict[str, int] = {}
+        self.id_counts: dict[str, int] = {}
 
     def handle_decl(self, decl: str) -> None:
         if decl.strip().lower().startswith("doctype html"):
             self.has_doctype = True
 
-    def _check_id(self, attrs: dict[str, str | None]) -> None:
-        element_id = attrs.get("id")
-        if element_id:
-            self.ids[element_id] = self.ids.get(element_id, 0) + 1
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self._check_attributes(tag, dict(attrs))
+        if tag == "title":
+            self._in_title = True
+        if tag not in VOID_ELEMENTS:
+            self._stack.append(tag)
 
-    def _open(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        attributes = dict(attrs)
-        self._check_id(attributes)
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        # An XHTML-style `<img/>` closes itself: its attributes are checked the same way,
+        # but it never joins the open-tag stack and encloses no content.
+        self._check_attributes(tag, dict(attrs))
+
+    def _check_attributes(self, tag: str, attributes: dict[str, str | None]) -> None:
+        element_id = attributes.get("id")
+        if element_id:
+            self.id_counts[element_id] = self.id_counts.get(element_id, 0) + 1
 
         if tag == "html":
             self.html_lang = attributes.get("lang")
         if tag == "meta" and attributes.get("charset") is not None:
             self.has_charset = True
-        if tag == "title":
-            self._in_title = True
         if tag == "a" and not (attributes.get("href") or "").strip():
             self.violations.append(f"{self.name}: <a> with no (or empty) href")
-        if tag == "img" and "alt" not in attributes:
-            self.violations.append(f"{self.name}: <img> with no alt attribute")
-
-        if tag not in VOID_ELEMENTS:
-            self._stack.append(tag)
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        self._open(tag, attrs)
-
-    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        attributes = dict(attrs)
-        self._check_id(attributes)
         if tag == "img" and "alt" not in attributes:
             self.violations.append(f"{self.name}: <img> with no alt attribute")
 
@@ -103,7 +97,7 @@ class Page(HTMLParser):
             violations.append(f"{self.name}: missing <meta charset>")
         if not self.title_text.strip():
             violations.append(f"{self.name}: missing or empty <title>")
-        for element_id, count in self.ids.items():
+        for element_id, count in self.id_counts.items():
             if count > 1:
                 violations.append(f"{self.name}: id {element_id!r} used {count} times")
         return violations
@@ -117,14 +111,14 @@ def check_page(path: Path) -> list[str]:
 
 
 def main() -> int:
-    pages = sorted(SITE.glob("**/*.html"))
-    if not pages:
+    paths = sorted(SITE.glob("**/*.html"))
+    if not paths:
         print(f"no HTML pages found under {SITE.relative_to(ROOT)}")
         return 1
 
     violations: list[str] = []
-    for page in pages:
-        violations += check_page(page)
+    for path in paths:
+        violations += check_page(path)
 
     for violation in violations:
         print(violation)

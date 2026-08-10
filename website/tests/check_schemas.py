@@ -3,9 +3,9 @@
 
 Run with any Python 3 — no dependencies (matching check_site.py's no-toolchain rule,
 ADR-0001), except a network fetch to each schema's pinned source ref: this check verifies
-provenance, not just shape, and that seam is GitHub's API, not deployed Pages/DNS state
-(the file/HTTP seam described in uncompose#92, distinct from the live-URL and redirect
-checks ADR-0002 defers to the release checklist).
+provenance, not just shape, and that seam is GitHub's raw-content host, not deployed
+Pages/DNS state (the file/HTTP seam described in uncompose#92, distinct from the live-URL
+and redirect checks ADR-0002 defers to the release checklist).
 
 For each schema in schemas/sources.json this checks: the served file exists at the exact
 identifier URL's path, is parseable JSON, declares that identifier as its own `$id`, is
@@ -44,20 +44,6 @@ def check_served_path(entry: dict) -> list[str]:
     return []
 
 
-def check_present_and_parseable(entry: dict) -> tuple[list[str], bytes | None, dict | None]:
-    path = ROOT / entry["served_path"]
-    if not path.is_file():
-        return [f"{entry['served_path']}: missing"], None, None
-
-    raw = path.read_bytes()
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        return [f"{entry['served_path']}: not parseable JSON ({exc})"], raw, None
-
-    return [], raw, parsed
-
-
 def check_id_matches(entry: dict, parsed: dict) -> list[str]:
     schema_id = parsed.get("$id")
     if schema_id != entry["identifier_url"]:
@@ -91,22 +77,43 @@ def check_matches_source_ref(entry: dict, raw: bytes) -> list[str]:
     return []
 
 
-def parse_headers_file(text: str) -> dict[str, list[str]]:
-    """Path -> its indented header lines, per Cloudflare Pages' `_headers` format:
-    a path on its own line, followed by one or more indented `Name: value` lines,
+def check_entry(entry: dict) -> list[str]:
+    """Every check for one schema file, each step earning the next."""
+    served_path = entry["served_path"]
+    violations = check_served_path(entry)
+
+    path = ROOT / served_path
+    if not path.is_file():
+        return violations + [f"{served_path}: missing"]
+
+    raw = path.read_bytes()
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        # Unparseable bytes have no `$id` to compare, and reporting drift from the pinned
+        # ref on top of that would only restate the same broken file.
+        return violations + [f"{served_path}: not parseable JSON ({exc})"]
+
+    violations += check_id_matches(entry, parsed)
+    violations += check_matches_source_ref(entry, raw)
+    return violations
+
+
+def parse_headers_file(text: str) -> dict[str, dict[str, str]]:
+    """Path -> its headers, keyed by lowercased name, per Cloudflare Pages' `_headers`
+    format: a path on its own line, followed by one or more indented `Name: value` lines,
     blocks separated by blank lines. Comment lines (`#`) are ignored.
     """
-    blocks: dict[str, list[str]] = {}
-    current_path: str | None = None
+    blocks: dict[str, dict[str, str]] = {}
+    headers: dict[str, str] | None = None
     for line in text.splitlines():
         if not line.strip() or line.lstrip().startswith("#"):
             continue
-        if line[0].isspace():
-            if current_path is not None:
-                blocks[current_path].append(line.strip())
-        else:
-            current_path = line.strip()
-            blocks.setdefault(current_path, [])
+        if not line[0].isspace():
+            headers = blocks.setdefault(line.strip(), {})
+        elif headers is not None and ":" in line:
+            name, _, value = line.partition(":")
+            headers[name.strip().lower()] = value.strip()
     return blocks
 
 
@@ -118,15 +125,12 @@ def check_headers(entries: list[dict]) -> list[str]:
     violations = []
     for entry in entries:
         url_path = urlparse(entry["identifier_url"]).path
-        header_lines = blocks.get(url_path)
-        if header_lines is None:
+        headers = blocks.get(url_path)
+        if headers is None:
             violations.append(
                 f"site/_headers: no stanza for {url_path} (needed for {entry['served_path']})"
             )
-            continue
-
-        stanza = "\n".join(header_lines).lower()
-        if "content-type" not in stanza or "application/json" not in stanza:
+        elif not headers.get("content-type", "").lower().startswith("application/json"):
             violations.append(
                 f"site/_headers: {url_path} does not declare an application/json "
                 "Content-Type"
@@ -143,14 +147,7 @@ def main() -> int:
     violations: list[str] = []
 
     for entry in entries:
-        violations += check_served_path(entry)
-        present_violations, raw, parsed = check_present_and_parseable(entry)
-        violations += present_violations
-        if raw is None:
-            continue
-        if parsed is not None:
-            violations += check_id_matches(entry, parsed)
-            violations += check_matches_source_ref(entry, raw)
+        violations += check_entry(entry)
 
     violations += check_headers(entries)
 

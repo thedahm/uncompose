@@ -5,8 +5,9 @@ Run with any Python 3 — no dependencies (ADR-0001). A same-origin `href`/`src`
 points nowhere is invisible until a visitor clicks it or a browser fails to load it;
 this walks every page under `site/`, resolves each relative reference against the files
 actually there, and checks any `#fragment` against a real `id` on the target page.
-Off-origin references (anything with a scheme, `//`, or `data:`) are out of scope here —
-`check_site.py` is what enforces that the page makes no off-origin request at all.
+References that name somewhere else (anything with a scheme, `data:` included, or a
+protocol-relative `//`) are out of scope here — `check_site.py` is what enforces that the
+page makes no off-origin request at all.
 """
 
 from __future__ import annotations
@@ -21,17 +22,24 @@ ROOT = Path(__file__).resolve().parent.parent
 SITE = ROOT / "site"
 
 LINK_ATTRS = {"href", "src", "srcset", "poster", "action", "formaction"}
-OFF_ORIGIN = re.compile(r"^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|//)")
+
+# Anything carrying a scheme (`https:`, `mailto:`, `data:`) or protocol-relative `//`
+# names something outside this tree, so there is no file here to resolve it to.
+NON_LOCAL = re.compile(r"^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|//)")
 
 
-def is_off_origin(value: str) -> bool:
-    value = value.strip()
-    return bool(OFF_ORIGIN.match(value)) and not value.startswith("data:")
+def is_local(value: str) -> bool:
+    return not NON_LOCAL.match(value.strip())
 
 
-def references(attr: str, value: str) -> list[str]:
+def reference_urls(attr: str, value: str) -> list[str]:
+    """The URLs one attribute points at.
+
+    Most attributes hold a single URL; `srcset` holds several, each a URL followed by a
+    descriptor ("small.png 1x, large.png 2x"), so each has to be resolved on its own.
+    """
     if attr == "srcset":
-        return [c.split()[0] for c in value.split(",") if c.strip()]
+        return [candidate.split()[0] for candidate in value.split(",") if candidate.strip()]
     return [value]
 
 
@@ -76,7 +84,13 @@ def check_reference(source: Path, attr: str, value: str, pages: dict[Path, Page]
             return f"{name}: <{attr}='{value}'> — no element with id {fragment!r} on this page"
         return None
 
-    target = (source.parent / path_part).resolve()
+    # A leading slash is the site root a visitor gets, which is `site/` itself — not the
+    # filesystem root Path's `/` join would hand back.
+    if path_part.startswith("/"):
+        target = (SITE / path_part.lstrip("/")).resolve()
+    else:
+        target = (source.parent / path_part).resolve()
+
     try:
         target.relative_to(SITE.resolve())
     except ValueError:
@@ -111,10 +125,10 @@ def main() -> int:
     violations: list[str] = []
     for source, page in pages.items():
         for attr, value in page.refs:
-            for candidate in references(attr, value):
-                if is_off_origin(candidate) or candidate.strip().startswith("data:"):
+            for url in reference_urls(attr, value):
+                if not is_local(url):
                     continue
-                violation = check_reference(source, attr, candidate, pages)
+                violation = check_reference(source, attr, url, pages)
                 if violation:
                     violations.append(violation)
 
