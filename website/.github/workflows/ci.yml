@@ -1,0 +1,16 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # The family's Rust lanes don't apply here: this repo ships HTML and CSS with no
+  # toolchain (ADR-0001), so the checks run on the runner's stock Python and install
+  # nothing.
+  site:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tests/check_site.py

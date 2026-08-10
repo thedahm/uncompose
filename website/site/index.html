@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Uncompose — local-first tools for separating and judging audio</title>
+    <meta
+      name="description"
+      content="Uncompose is an open, local-first toolkit for transforming audio, preserving its provenance, and evaluating the results. No accounts, no telemetry, no tracking."
+    >
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cg fill='%23c9752f'%3E%3Crect x='2' y='3' width='3' height='10' rx='1.5'/%3E%3Crect x='6.5' y='1' width='3' height='14' rx='1.5'/%3E%3Crect x='11' y='5' width='3' height='6' rx='1.5'/%3E%3C/g%3E%3C/svg%3E"
+    >
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Uncompose</h1>
+        <p class="lede">
+          An open, local-first toolkit for transforming audio, preserving its provenance,
+          and evaluating the results.
+        </p>
+      </header>
+
+      <section aria-labelledby="tools">
+        <h2 id="tools">Three tools</h2>
+        <dl class="tools">
+          <div>
+            <dt>Uncompose</dt>
+            <dd>Transform recorded music into stems.</dd>
+          </div>
+          <div>
+            <dt>Uncompose Project</dt>
+            <dd>Record the assets, relationships, and processes in an audio project.</dd>
+          </div>
+          <div>
+            <dt>Uncompose Compare</dt>
+            <dd>
+              Evaluate audio assets through controlled listening and structured
+              observations.
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <section aria-labelledby="commands">
+        <h2 id="commands">One command namespace</h2>
+        <pre><code>uncompose separate song.wav
+uncompose project init
+uncompose project import song.stems/job.json
+uncompose compare vocals-a.wav vocals-b.wav</code></pre>
+        <p>
+          Each tool installs and runs on its own; installed together they answer to
+          <code>uncompose</code>.
+        </p>
+      </section>
+
+      <section aria-labelledby="local-first">
+        <h2 id="local-first">Local-first, and honest about it</h2>
+        <p>
+          Your audio never leaves your machine. There are no accounts, no telemetry, and
+          no network I/O beyond the separation models you ask Uncompose to download. Your
+          files, your models, your machine.
+        </p>
+        <p>
+          This page keeps the same promise: static HTML and CSS, no analytics, no
+          third-party requests, nothing to consent to.
+        </p>
+        <p class="fine">
+          You are responsible for having the rights to the audio you process. Separating a
+          recording does not grant you any rights to it.
+        </p>
+      </section>
+
+      <section aria-labelledby="get">
+        <h2 id="get">Get it</h2>
+        <ul class="links">
+          <li>
+            <span class="name">Uncompose</span>
+            <a href="https://github.com/thedahm/uncompose">source</a>
+            <a href="https://pypi.org/project/uncompose/">package</a>
+          </li>
+          <li>
+            <span class="name">Uncompose Project</span>
+            <a href="https://github.com/thedahm/uncompose-project">source</a>
+            <a href="https://pypi.org/project/uncompose-project/">package</a>
+          </li>
+          <li>
+            <span class="name">Uncompose Compare</span>
+            <a href="https://github.com/thedahm/uncompose-compare">source</a>
+            <a href="https://pypi.org/project/uncompose-compare/">package</a>
+          </li>
+        </ul>
+        <p class="fine">
+          Project and Compare are pre-v0.1: their packages are reserved placeholders until
+          the first release. Uncompose itself installs today.
+        </p>
+      </section>
+    </main>
+
+    <footer>
+      <p>MIT licensed. © 2026 Dominic Hanzely.</p>
+    </footer>
+  </body>
+</html>
