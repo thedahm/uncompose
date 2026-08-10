@@ -5,13 +5,17 @@ manifest file — of commands typed the way the walkthrough types them. Nothing
 imports a tool's internals or looks inside a cache.
 """
 
-import hashlib
 import json
 import re
 
+from uncompose_acceptance.commands import cache_root
+from uncompose_acceptance.reading import sha256
 
-def sha256(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+# What a run that never fetched a model leaves behind: config, state, and at
+# most a little scratch. Separation weights are two orders of magnitude larger
+# than this, so the budget separates "a tool kept a note" from "a tool
+# downloaded a model" without pretending to know what either writes.
+CACHE_BUDGET = 4 * 1024 * 1024
 
 
 def stem_assets(manifest):
@@ -113,7 +117,7 @@ def test_show_json_prints_the_manifest_on_disk(cli_slice):
 def test_verify_is_green_over_the_whole_project(cli_slice):
     result = cli_slice.verify
     assert result.ok, result.describe()
-    assert "error" not in result.stderr and "warning" not in result.stderr, result.describe()
+    assert result.quiet, result.describe()
     # Green means every registered file was checked, source and stems alike.
     assert cli_slice.fixtures.source.name in result.stdout, result.describe()
     for asset in stem_assets(cli_slice.manifest()):
@@ -121,7 +125,17 @@ def test_verify_is_green_over_the_whole_project(cli_slice):
 
 
 def test_no_step_downloaded_model_weights(cli_slice):
-    # The whole leg runs on fake separations; if any step had reached for a
-    # model, it would have landed in the cache directory the run owns.
-    cache = cli_slice.installation.home / "cache" / "uncompose"
-    assert not cache.exists(), f"a step populated {cache}, so something fetched weights"
+    # The whole leg runs on fake separations, so nothing should have fetched a
+    # model. Weighed over the whole cache tree the run owns rather than looked
+    # for under a name: which directory a tool caches into is its own business
+    # (ADR-0007), and a guard that names one passes vacuously the day it moves.
+    cache = cache_root(cli_slice.installation)
+    files = [path for path in cache.rglob("*") if path.is_file()]
+    total = sum(path.stat().st_size for path in files)
+
+    largest = sorted(files, key=lambda path: path.stat().st_size, reverse=True)[:5]
+    assert total <= CACHE_BUDGET, (
+        f"{cache} holds {total} bytes, over the {CACHE_BUDGET}-byte budget, so a step "
+        "fetched something the size of model weights. Largest:\n"
+        + "\n".join(f"  {path.stat().st_size} {path.relative_to(cache)}" for path in largest)
+    )

@@ -67,18 +67,30 @@ published document actually got you through it.
     Docs: [`docs/walkthrough.md`](walkthrough.md) § 6 (`uncompose project show`,
     `uncompose project verify`).
 
-## Part 2 — website: schema refresh (manual in v0.1, per #71 / story 25)
+## Part 2 — website: what a release makes stale (manual in v0.1, per #71 / story 25)
 
 13. **Refresh the website's committed schema copies from each tool's tagged release.**
     In `uncompose-website`: for each of `uncompose-project` and `uncompose-compare`,
     copy `schemas/*/v0/*.schema.json` from the release tag into the matching
     `site/schemas/.../` path, and move that pin in `schemas/sources.json` from the old
     commit SHA (or tag) to the new release tag — see that repo's `schemas/README.md` for
-    the exact convention. `check_schemas.py` reads only each entry's `ref`, so the rest of
-    the pin record is yours to carry: set `ref_kind` to `tag`, drop the entry's
-    pre-v0.1.0 `note`, and update the "Pinned from" table and the "neither tool has cut a
-    v0.1.0 tag yet" paragraph in `schemas/README.md`. Confirm `tests/check_schemas.py`
-    passes against the new pins before pushing.
+    the exact convention. The rest of the pin record moves with it: set `ref_kind` to
+    `tag`, drop the entry's pre-v0.1.0 `note`, and update the "Pinned from" table and the
+    "neither tool has cut a v0.1.0 tag yet" paragraph in `schemas/README.md`.
+    `check_schemas.py` cross-checks all four of those against `sources.json`, so a
+    half-done refresh is a red check — but it cannot tell you the pin has gone stale
+    against a release you never came here to record, which is why this step exists.
+    Confirm `tests/check_schemas.py` passes against the new pins before pushing.
+
+14. **Refresh the landing page's release-status copy.**
+    `site/index.html` carries a paragraph about which packages are real yet — before the
+    v0.1.0 cut it reads *"Project and Compare are pre-v0.1: their packages are reserved
+    placeholders until the first release."* The moment this release publishes working
+    wheels that sentence is false, and it discourages exactly the `pip install` the page
+    exists to enable. Rewrite it for what shipped (or delete it, once nothing on the page
+    is a placeholder), and re-run `tests/check_site.py`. Nothing checks this paragraph
+    automatically: it is prose about the world outside the repo, which is what makes it a
+    checklist item rather than a check.
 
 ## Part 3 — deployed state (CI can't honestly reproduce this)
 
@@ -86,9 +98,9 @@ Both of these depend on live DNS, Cloudflare account state, and the current Page
 deployment — exactly what `uncompose-website`'s CI is scoped to not touch. Run the
 verify block in that repo's `docs/deploy.md` ("## 4. Verify") against production:
 
-14. **`uncompose.cc` (apex and `www`, any path and query) 301s to the matching
+15. **`uncompose.cc` (apex and `www`, any path and query) 301s to the matching
     `uncompose.org` URL**, not a 302, with the path and query string preserved.
-15. **Both schema identifier URLs resolve on the live site** (`200`, `content-type`
+16. **Both schema identifier URLs resolve on the live site** (`200`, `content-type`
     starting `application/json`):
     `https://uncompose.org/schemas/project/v0/uncompose.project.schema.json` and
     `https://uncompose.org/schemas/compare/v0/uncompose.compare.schema.json`.
@@ -101,5 +113,5 @@ Each run gets committed as its own file at
 checklist with every item marked pass/fail, the document that got you through it (or the
 gap that didn't), and who ran it. The file is the record; nothing elsewhere needs to
 point at it, and git's own history says when it ran. A release isn't done until its
-checklist file is committed, all fifteen items pass, and Parts 2 and 3 were run against
+checklist file is committed, all sixteen items pass, and Parts 2 and 3 were run against
 the artifacts and site that release actually shipped, not a rehearsal.

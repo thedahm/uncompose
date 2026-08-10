@@ -31,6 +31,12 @@ The run is hermetic in the other direction too: `HOME` and every XDG directory
 point inside the run's temporary tree, so the gate neither reads nor writes the
 machine's caches, state, or projects.
 
+That tree is the one thing the gate may weigh rather than only read through a
+command: the no-weights guard sizes the whole of the run's `XDG_CACHE_HOME`,
+which the harness chose the location of. Sizing a directory the harness owns is
+not the forbidden move — that is *naming* a path inside it, which would encode
+a layout the tools are free to change and would pass vacuously the day they do.
+
 ## Python and `uv`, not `cargo test`
 
 The harness is a pytest suite under `acceptance/`, run with `uv run pytest`,

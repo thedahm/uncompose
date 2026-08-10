@@ -107,10 +107,30 @@ def test_a_served_session_reports_the_loopback_url_it_printed(tmp_path):
         shell(f"echo '{LOOPBACK}5173/?token=abc'; sleep 30"),
         cwd=tmp_path,
         env={},
+        stdout_path=tmp_path / "stdout",
         stderr_path=tmp_path / "stderr",
     )
     try:
         assert served.url == f"{LOOPBACK}5173/?token=abc"
+    finally:
+        served.kill()
+
+
+def test_a_chatty_session_still_closes_and_hands_back_everything_it_printed(tmp_path):
+    # More than any pipe buffer would hold: a session logging this much to
+    # stdout must still be able to exit, and what it said must still be
+    # readable — not a write blocked forever on a stream nobody drains.
+    served = spawn_served(
+        shell(f"echo '{LOOPBACK}5173/?token=abc'; head -c 400000 /dev/zero | tr '\\0' 'x'"),
+        cwd=tmp_path,
+        env={},
+        stdout_path=tmp_path / "stdout",
+        stderr_path=tmp_path / "stderr",
+    )
+    try:
+        assert served.url == f"{LOOPBACK}5173/?token=abc"
+        assert served.wait(timeout=30) == 0
+        assert served.stdout().count("x") == 400000
     finally:
         served.kill()
 
@@ -121,6 +141,7 @@ def test_a_session_that_prints_something_else_is_not_a_served_workbench(tmp_path
             shell("echo http://example.invalid/; sleep 30"),
             cwd=tmp_path,
             env={},
+            stdout_path=tmp_path / "stdout",
             stderr_path=tmp_path / "stderr",
         )
 
@@ -133,6 +154,7 @@ def test_a_session_that_dies_first_reports_its_exit_code_and_stderr(tmp_path):
             shell("echo 'no asset with slug' >&2; exit 3"),
             cwd=tmp_path,
             env={},
+            stdout_path=tmp_path / "stdout",
             stderr_path=tmp_path / "stderr",
         )
 
@@ -147,6 +169,7 @@ def test_a_session_that_says_nothing_is_given_up_on(tmp_path):
             shell("sleep 30"),
             cwd=tmp_path,
             env={},
+            stdout_path=tmp_path / "stdout",
             stderr_path=tmp_path / "stderr",
             timeout=0.5,
         )
@@ -274,21 +297,14 @@ def record(preference="A", confidence=4):
 def test_the_record_reconnects_each_label_to_the_asset_behind_it():
     verdict = read_verdict(record())
 
-    # The shuffle put the second run behind label A; the record is the only
-    # place that says so, which is what makes the verdict blind.
-    assert verdict.blind
+    # The shuffle put the second run behind label A, and the record is the only
+    # place that says so — which is the whole reason a blind verdict is read
+    # through it rather than assumed from the order the candidates were given.
     assert verdict.labels == ("A", "B")
     assert verdict.assets == {"A": "vocals-2", "B": "vocals"}
     assert verdict.paths["A"].endswith("roformer-2stem/vocals.wav")
     assert verdict.preferred_asset == "vocals-2"
     assert verdict.confidence == 4
-
-
-def test_a_sighted_record_is_not_a_blind_one():
-    sighted = record()
-    sighted["mode"] = "ab"
-
-    assert read_verdict(sighted).blind is False
 
 
 def test_a_record_with_no_preference_prefers_no_asset():

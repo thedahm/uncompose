@@ -13,6 +13,10 @@ from pathlib import Path
 
 from .install import Installation
 
+# Words a command that went well never puts on stderr. The tools report what
+# they did on stdout; stderr is where they complain.
+COMPLAINTS = ("error", "warning")
+
 
 @dataclass(frozen=True)
 class CommandResult:
@@ -20,17 +24,35 @@ class CommandResult:
     returncode: int
     stdout: str
     stderr: str
+    # What was installed when this ran, so a failing assertion names the
+    # artifacts it was testing (`Installation.describe()`).
+    provenance: str = ""
 
     @property
     def ok(self) -> bool:
         return self.returncode == 0
 
+    @property
+    def quiet(self) -> bool:
+        """Nothing on stderr that reads as a complaint."""
+        return not any(complaint in self.stderr for complaint in COMPLAINTS)
+
     def describe(self) -> str:
         return (
             f"$ {' '.join(self.argv)}\n"
             f"exit {self.returncode}\n"
-            f"--- stdout ---\n{self.stdout}\n--- stderr ---\n{self.stderr}"
+            f"--- stdout ---\n{self.stdout}\n--- stderr ---\n{self.stderr}\n"
+            f"{self.provenance}"
         )
+
+
+def cache_root(installation: Installation) -> Path:
+    """The one cache tree the run owns, whatever any tool decides to call its own.
+
+    Named here rather than at each use, because it is the harness's own choice
+    (via `XDG_CACHE_HOME`) and not a layout any tool under test publishes.
+    """
+    return installation.home / "cache"
 
 
 def environment(installation: Installation) -> dict[str, str]:
@@ -45,7 +67,7 @@ def environment(installation: Installation) -> dict[str, str]:
         "HOME": str(installation.home),
         # Keep every cache and state directory the family might use inside the
         # run's own tree: the gate must not read or write the machine's.
-        "XDG_CACHE_HOME": str(installation.home / "cache"),
+        "XDG_CACHE_HOME": str(cache_root(installation)),
         "XDG_STATE_HOME": str(installation.home / "state"),
         "XDG_DATA_HOME": str(installation.home / "data"),
         "XDG_CONFIG_HOME": str(installation.home / "config"),
@@ -82,10 +104,12 @@ def run(
             returncode=127,
             stdout="",
             stderr=f"{argv[0]}: not found in the installation",
+            provenance=installation.describe(),
         )
     return CommandResult(
         argv=tuple(argv),
         returncode=completed.returncode,
         stdout=completed.stdout,
         stderr=completed.stderr,
+        provenance=installation.describe(),
     )

@@ -1,4 +1,29 @@
 {
-  "repoChecks": "`cargo test` at the repo root runs everything on the Rust side, plus `cargo fmt --all --check` and `cargo clippy --workspace --all-targets -- -D warnings` (mirrors CI; see CONTRIBUTING.md). If you touched the Python engine, also run `uv run pytest` in `engine/` (after `uv sync` there).",
-  "copyToWorktree": ["node_modules", "target"]
+  "repoChecks": "`cargo test` at the repo root runs everything on the Rust side, plus `cargo fmt --all --check` and `cargo clippy --workspace --all-targets -- -D warnings` (mirrors CI; see CONTRIBUTING.md). If you touched the Python engine, also run `uv run pytest` in `engine/` (after `uv sync` there). If you touched the acceptance gate, run `uv run pytest` in `acceptance/` (after `uv sync` there); without `uv`/`git`/`cargo`/`npm` and a Chromium the installed-artifact legs skip and only the harness's own tests run. If you touched `website/`, run its four checks — `python3 tests/check_site.py`, `check_html.py`, `check_links.py`, `check_schemas.py` — from that directory; `check_schemas.py` needs network access to raw.githubusercontent.com.",
+  "copyToWorktree": [
+    "node_modules",
+    "target"
+  ],
+  "roster": {
+    "haiku": {
+      "provider": "claudeCode",
+      "model": "claude-haiku-4-5"
+    },
+    "sonnet": {
+      "provider": "claudeCode",
+      "model": "claude-sonnet-5"
+    },
+    "opus": {
+      "provider": "claudeCode",
+      "model": "claude-opus-5"
+    },
+    "fable": {
+      "provider": "claudeCode",
+      "model": "claude-fable-5"
+    }
+  },
+  "implementerDefaults": {
+    "tier": "opus",
+    "effort": "high"
+  }
 }

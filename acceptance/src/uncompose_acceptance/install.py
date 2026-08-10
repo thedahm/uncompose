@@ -49,7 +49,9 @@ class Installation:
 
     Carries where each package came from — including the commit a git ref
     resolved to — so a failing gate names the artifacts it was testing rather
-    than leaving that to be reconstructed from the log.
+    than leaving that to be reconstructed from the log. `describe()` is how
+    that reaches the reader: every command result and every served session
+    carries it, so any failure message says what was installed.
     """
 
     env: Path
@@ -58,6 +60,17 @@ class Installation:
     home: Path
     sources: tuple[Source, ...]
     commits: Mapping[str, str]
+
+    def describe(self) -> str:
+        """The artifacts under test, one line each, ref resolved to a commit."""
+        if not self.sources:
+            return "--- installed artifacts ---\n  (nothing installed)"
+        lines = []
+        for source in self.sources:
+            commit = self.commits.get(source.package)
+            resolved = f" (resolved to {commit})" if commit else ""
+            lines.append(f"  {source.describe()}{resolved}")
+        return "\n".join(["--- installed artifacts ---", *lines])
 
 
 def missing_tools(mode: str) -> tuple[str, ...]:

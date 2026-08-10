@@ -14,14 +14,13 @@ from the rendered page, the record file, and the manifest.
 from __future__ import annotations
 
 import os
-import selectors
 import signal
 import subprocess
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import IO, Callable, Mapping, Sequence
+from typing import Callable, Mapping, Sequence
 
 from .commands import environment
 from .install import Installation, ToolchainMissing
@@ -38,6 +37,9 @@ URL_TIMEOUT = 60.0
 # How long the concluded session gets to write its record, hand it to
 # `uncompose-project import`, and exit.
 EXIT_TIMEOUT = 60.0
+
+# How often the launch looks for the URL line the session is about to print.
+POLL_INTERVAL = 0.02
 
 # What the listener does at the workbench. The stem is the one both runs
 # produced, so a `<stem>@<derivation>` ref names each run's take on the same
@@ -60,10 +62,15 @@ class Served:
     argv: tuple[str, ...]
     process: subprocess.Popen
     url: str
+    stdout_path: Path
     stderr_path: Path
+    provenance: str = ""
+
+    def stdout(self) -> str:
+        return _read_log(self.stdout_path)
 
     def stderr(self) -> str:
-        return _read_stderr(self.stderr_path)
+        return _read_log(self.stderr_path)
 
     def wait(self, timeout: float = EXIT_TIMEOUT) -> int:
         """Wait for the session to exit itself, as a concluded one does."""
@@ -79,7 +86,8 @@ class Served:
         _kill(self.process)
 
     def describe(self) -> str:
-        return _describe(self.argv)
+        described = _describe(self.argv)
+        return f"{described}\n{self.provenance}" if self.provenance else described
 
 
 @dataclass(frozen=True)
@@ -128,7 +136,6 @@ class BlindVerdict:
     preferred is resolved through it rather than assumed.
     """
 
-    blind: bool
     labels: tuple[str, ...]
     # A record written outside a project names no asset, so a label may lead
     # nowhere; only a project-launched session fills these in.
@@ -185,7 +192,9 @@ def spawn_served(
     *,
     cwd: str | Path,
     env: Mapping[str, str],
+    stdout_path: Path,
     stderr_path: Path,
+    provenance: str = "",
     timeout: float = URL_TIMEOUT,
 ) -> Served:
     """Launch a serving command and return it with the loopback URL it printed.
@@ -193,14 +202,19 @@ def spawn_served(
     The CLI contract says the first line of stdout is the tokened URL, so a
     session that prints anything else, dies first, or says nothing is a failed
     launch — never a hang, and never a `Served` the caller has to re-check.
+
+    Both streams go to files rather than pipes. A pipe would have to be drained
+    for the session's whole life, and a session that filled one would block on
+    the write and then be reported as a shutdown that never happened; a file
+    also leaves everything it printed readable afterwards.
     """
     argv = tuple(str(arg) for arg in argv)
-    with open(stderr_path, "wb") as stderr_file:
+    with open(stdout_path, "wb") as stdout_file, open(stderr_path, "wb") as stderr_file:
         process = subprocess.Popen(
             argv,
             cwd=str(cwd),
             env=dict(env),
-            stdout=subprocess.PIPE,
+            stdout=stdout_file,
             stderr=stderr_file,
             # Its own process group, so a session that outlives the leg is
             # reaped whole rather than left serving in the background.
@@ -209,46 +223,64 @@ def spawn_served(
 
     def failed(why: str) -> WorkbenchError:
         _kill(process)
-        stderr = _read_stderr(stderr_path)
-        return WorkbenchError(f"{_describe(argv)}\n{why}\n--- stderr ---\n{stderr}")
+        return WorkbenchError(
+            f"{_describe(argv)}\n{why}\n"
+            f"--- stdout ---\n{_read_log(stdout_path)}\n"
+            f"--- stderr ---\n{_read_log(stderr_path)}\n{provenance}"
+        )
 
     try:
-        line = _first_line(process.stdout, timeout)
+        line = _first_line(stdout_path, process, timeout)
     except WorkbenchError as silent:
         raise failed(str(silent)) from silent
     if not line:
         raise failed(f"exited (code {process.poll()}) before printing a URL")
     if not line.startswith(LOOPBACK):
         raise failed(f"printed {line!r}, which is not a loopback URL")
-    return Served(argv=argv, process=process, url=line, stderr_path=stderr_path)
+    return Served(
+        argv=argv,
+        process=process,
+        url=line,
+        stdout_path=stdout_path,
+        stderr_path=stderr_path,
+        provenance=provenance,
+    )
 
 
 def _describe(argv: Sequence[str]) -> str:
     return f"$ {' '.join(argv)}"
 
 
-def _read_stderr(path: Path) -> str:
-    """What the session wrote to stderr, or nothing if it never got that far."""
-    return path.read_text() if path.exists() else ""
+def _read_log(path: Path) -> str:
+    """What the session wrote to one of its streams, or nothing if it never did."""
+    return path.read_text(errors="replace") if path.exists() else ""
 
 
-def _first_line(stream: IO[bytes], timeout: float) -> str:
-    """The first newline-terminated line, or "" at EOF; raises on the deadline."""
+def _first_line(path: Path, process: subprocess.Popen, timeout: float) -> str:
+    """The first complete line written to `path`, or "" if the session exited
+    without one; raises on the deadline.
+
+    The file is followed rather than read once, because the session is still
+    writing to it. A process that has exited gets one last read: everything it
+    wrote is on disk by then, so an empty read after that is an answer, not a
+    "not yet".
+    """
     deadline = time.monotonic() + timeout
-    selector = selectors.DefaultSelector()
-    selector.register(stream, selectors.EVENT_READ)
     buffered = b""
-    try:
+    with open(path, "rb") as stream:
         while b"\n" not in buffered:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0 or not selector.select(remaining):
+            chunk = stream.read()
+            if chunk:
+                buffered += chunk
+                continue
+            if process.poll() is not None:
+                buffered += stream.read()
+                break
+            if time.monotonic() >= deadline:
                 raise WorkbenchError(f"nothing was printed within {timeout}s")
-            chunk = os.read(stream.fileno(), 4096)
-            if not chunk:
-                return ""
-            buffered += chunk
-    finally:
-        selector.close()
+            time.sleep(POLL_INTERVAL)
+    if b"\n" not in buffered:
+        return ""
     return buffered.split(b"\n", 1)[0].decode(errors="replace").strip()
 
 
@@ -272,7 +304,6 @@ def read_verdict(record: dict) -> BlindVerdict:
             f"the record prefers {preferred!r}, which is none of its candidates {labels}"
         )
     return BlindVerdict(
-        blind=record["mode"] != "ab",
         labels=labels,
         assets={candidate["label"]: candidate.get("asset") for candidate in candidates},
         paths={candidate["label"]: candidate["path"] for candidate in candidates},
@@ -394,7 +425,9 @@ def run_workbench_leg(
         argv,
         cwd=project,
         env=environment(installation),
+        stdout_path=installation.home / "compare-stdout.log",
         stderr_path=installation.home / "compare-stderr.log",
+        provenance=installation.describe(),
     )
     try:
         browser = driver(served.url)

@@ -22,5 +22,9 @@ copy in `uncompose-project`'s own `schemas/vendor/` is manually pinned.
 
 CI (`tests/check_schemas.py`) fetches each schema from its pinned ref on GitHub and fails
 if the committed copy has drifted, so staleness between what's served and what's pinned
-is caught rather than silently accumulating. It cannot catch the pin itself going stale
-against the tool repo's latest release — that is what the release checklist step is for.
+is caught rather than silently accumulating. It also holds this file to `sources.json`:
+each entry's `ref_kind` must match the shape of its `ref`, the table above must name the
+same refs, a `tag` pin must no longer carry the pre-v0.1.0 `note`, and the paragraph above
+must be gone once every pin is a tag — so a half-run refresh is red rather than green over
+a record that has stopped being true. What it cannot catch is the pin itself going stale
+against the tool repo's latest release; that is what the release checklist step is for.

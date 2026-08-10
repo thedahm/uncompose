@@ -10,6 +10,12 @@ credentials, to give the tree its real home. **After the transplant, delete `web
 this document from this repo**: the website's source of truth is its own repo, and a
 second copy here would drift.
 
+The transplant and that deletion are tracked as
+[uncompose#115](https://github.com/thedahm/uncompose/issues/115), which also lists the
+[#92](https://github.com/thedahm/uncompose/issues/92) stories that stay open until it runs
+(the `.cc` redirect, the live schema URLs, the mirrored repo settings, and the Pages
+deploy).
+
 ## 1. Create the repo and push the tree
 
 ```sh
@@ -21,6 +27,9 @@ cp -a website/. /tmp/uncompose-website/
 cd /tmp/uncompose-website
 git add -A
 git commit -m "Website foundation: family docs, landing page, and the Cloudflare deploy record"
+# The clone of an empty repo takes its branch name from your own git config, so
+# name it explicitly rather than assuming init.defaultBranch=main.
+git branch -M main
 git push -u origin main
 ```
 

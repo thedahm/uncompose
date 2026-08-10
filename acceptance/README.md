@@ -96,3 +96,14 @@ directories, so it never reads or writes the machine's caches, state, or
 projects. The browser is the exception and not part of what is under test: it
 runs with the machine's own environment, and drives the installed session
 through loopback like any other client.
+
+## The `PATH` the installed commands get
+
+`/usr/bin` and `/bin`, plus the environment's own `bin` — never the caller's
+`PATH`, because a wheel that only works with `cargo` next to it is not what
+ships. On a GitHub runner that is the whole system, but on a local machine it
+is narrower than your shell: anything installed under `/usr/local/bin`
+(Homebrew's `ffmpeg`, for instance) is invisible to the commands under test. If
+a local run fails with a tool-not-found error that your own shell would not
+produce, that is why — the list is `SYSTEM_PATH` in
+[`install.py`](src/uncompose_acceptance/install.py).

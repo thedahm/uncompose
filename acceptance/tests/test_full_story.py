@@ -11,14 +11,10 @@ Everything asserted is what a user can read: the rendered page, the record
 file, the manifest, and exit codes.
 """
 
-import hashlib
 import json
 
+from uncompose_acceptance.reading import sha256
 from uncompose_acceptance.workbench import LOOPBACK
-
-
-def sha256(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def test_the_session_served_the_workbench_and_closed_itself_on_the_verdict(whole_story):
@@ -124,7 +120,7 @@ def test_the_evaluation_compares_the_two_runs_takes_of_the_same_stem(whole_story
 def test_verify_is_still_green_with_the_evaluation_in_the_manifest(whole_story):
     result = whole_story.verify
     assert result.ok, result.describe()
-    assert "error" not in result.stderr and "warning" not in result.stderr, result.describe()
+    assert result.quiet, result.describe()
     # `verify` walks the record it now references, not only the audio.
     assert whole_story.evaluations()[0]["record"]["path"] in result.stdout, result.describe()
 

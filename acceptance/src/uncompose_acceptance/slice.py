@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
+from typing import Callable, Mapping
 
 from .commands import CommandResult, run
 from .fixtures import SliceFixtures
@@ -36,6 +36,36 @@ from .workbench import (
 MANIFEST_NAME = "uncompose.project.json"
 
 EXTENSIONS = ("project", "compare")
+
+
+Cli = Callable[..., CommandResult]
+
+
+def cli_runner(
+    installation: Installation, project: Path, steps: list[CommandResult] | None = None
+) -> Cli:
+    """Run commands inside `installation` from `project`, filing each in `steps`."""
+
+    def cli(*argv: str) -> CommandResult:
+        result = run(installation, list(argv), cwd=project)
+        if steps is not None:
+            steps.append(result)
+        return result
+
+    return cli
+
+
+def read_project_back(cli: Cli, project: Path) -> tuple[CommandResult, CommandResult]:
+    """`verify` then `show --json`, in that order — the one reading of a project.
+
+    `verify` stamps `last_verified` on every asset that passes, so it is a
+    manifest write like any other. Running it first means `show` prints a
+    settled manifest rather than one about to be stamped again. Both legs read
+    the project this way, so the ordering is stated once, here.
+    """
+    verify = cli("uncompose-project", "verify", "--project", str(project))
+    show_json = cli("uncompose", "project", "show", "--json", "--project", str(project))
+    return verify, show_json
 
 
 def dispatch_forms(extension: str) -> dict[str, tuple[str, ...]]:
@@ -76,11 +106,7 @@ def run_cli_slice(
     installation: Installation, project: Path, fixtures: SliceFixtures
 ) -> CliSlice:
     steps: list[CommandResult] = []
-
-    def cli(*argv: str) -> CommandResult:
-        result = run(installation, list(argv), cwd=project)
-        steps.append(result)
-        return result
+    cli = cli_runner(installation, project, steps)
 
     versions = {"uncompose": cli("uncompose", "--version")}
     for extension in EXTENSIONS:
@@ -99,12 +125,8 @@ def run_cli_slice(
         )
     }
 
-    # `verify` stamps `last_verified` on every asset that passes, so it is a
-    # manifest write like any other. Running it before `show` means `show`
-    # prints a settled manifest rather than one about to be stamped again.
-    verify = cli("uncompose-project", "verify", "--project", str(project))
+    verify, show_json = read_project_back(cli, project)
     manifest_path = project / MANIFEST_NAME
-    show_json = cli("uncompose", "project", "show", "--json", "--project", str(project))
 
     return CliSlice(
         project=project,
@@ -169,12 +191,6 @@ def tell_whole_story(cli_slice: CliSlice) -> WholeStory:
     refs = candidate_refs(cli_slice.manifest())
     leg = run_workbench_leg(installation, project, refs)
 
-    def cli(*argv: str) -> CommandResult:
-        return run(installation, list(argv), cwd=project)
-
-    # Verify before show, as the CLI leg does: `verify` stamps the manifest, so
-    # only a `show` that follows it prints a settled one.
-    verify = cli("uncompose-project", "verify", "--project", str(project))
-    show_json = cli("uncompose", "project", "show", "--json", "--project", str(project))
+    verify, show_json = read_project_back(cli_runner(installation, project), project)
 
     return WholeStory(cli=cli_slice, leg=leg, refs=refs, verify=verify, show_json=show_json)
