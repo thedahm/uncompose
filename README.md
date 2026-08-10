@@ -84,6 +84,21 @@ Device is auto-detected: CUDA when an NVIDIA GPU is present, CPU otherwise
 minutes on GPU; CPU produces identical stems but takes tens of minutes — correct,
 just slow.
 
+## Projects: separate, register, compare, verify
+
+`uncompose` composes with two sibling tools — `uncompose-project` (the manifest
+that records where every file came from and how it was judged) and
+`uncompose-compare` (side-by-side stem auditioning) — through one `--project`
+flag. `uncompose separate --project .` separates *and* registers the job;
+`uncompose compare --project .` compares stems by manifest reference and records
+the verdict back into the project.
+
+The [end-to-end walkthrough](docs/walkthrough.md) performs the whole slice from
+three installed wheels — install, `project init`, `separate --project`, `show`,
+`compare --project`, `verify` — with nothing checked out. The
+[`demo/`](demo/) directory rebuilds that finished project from synthetic
+fixtures in seconds, no GPU or model downloads required.
+
 ## Extending
 
 Any executable named `uncompose-<command>` on `PATH` becomes a subcommand
