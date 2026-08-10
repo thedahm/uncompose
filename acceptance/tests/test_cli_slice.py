@@ -107,7 +107,7 @@ def test_the_source_is_the_input_of_both_derivations(cli_slice):
 
 def test_show_json_prints_the_manifest_on_disk(cli_slice):
     assert cli_slice.show_json.ok, cli_slice.show_json.describe()
-    assert json.loads(cli_slice.show_json.stdout) == cli_slice.manifest()
+    assert json.loads(cli_slice.show_json.stdout) == cli_slice.shown
 
 
 def test_verify_is_green_over_the_whole_project(cli_slice):

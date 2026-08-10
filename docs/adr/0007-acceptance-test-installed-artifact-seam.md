@@ -5,8 +5,9 @@ three packages into a clean environment and drives the vertical slice through
 them. This ADR records where that test lives, what it may touch, and how it
 gets the wheels it tests. Decided in the M6 spec
 ([#92](https://github.com/thedahm/uncompose/issues/92), stories 33–38 and its
-testing decisions) and built in slice 5
-([#99](https://github.com/thedahm/uncompose/issues/99)).
+testing decisions) and built in slices 5 and 6
+([#99](https://github.com/thedahm/uncompose/issues/99),
+[#103](https://github.com/thedahm/uncompose/issues/103)).
 
 ## The seam: installed commands on `PATH`, nothing below
 
@@ -61,6 +62,40 @@ A machine lacking the toolchain skips rather than fails, because a contributor
 without a Rust compiler should not see a red suite; CI sets
 `UNCOMPOSE_ACCEPTANCE_REQUIRE=1`, which turns that skip into a failure, because
 a gate that could not run has not passed.
+
+## The browser leg is the same seam, reached through loopback
+
+Half the slice cannot be typed. `uncompose compare --project` does not finish —
+it serves a workbench and exits when the listener concludes — so the gate
+launches that session as a subprocess like every other command, catches the
+tokened loopback URL it prints, and drives the page in Chromium: place a pin,
+engrave a blind verdict, conclude. The record it writes, the manifest entry
+`uncompose-project import` makes from it, and the closing screen the listener
+sees are all read afterwards; nothing talks to the server directly.
+
+Three choices behind that, each of which could have gone the other way:
+
+- **Playwright from Python, in this same pytest session, rather than a Node
+  harness beside it.** Compare's specs are the prior art for *what* to drive
+  (the flow and its test ids); copying their runner as well would mean two
+  processes, two dependency trees, and a project handed between them. The gate
+  is one command either way, and the browser leg needs the installation the CLI
+  leg already built.
+- **One project, driven in two legs, rather than a project per leg.** The
+  milestone's assertion is that the manifest tells the *whole* story; a
+  comparison in a project of its own would only prove Compare can write a
+  record. The verdict has to land in the manifest the imports built, over
+  stems those imports registered.
+- **Chromium only.** The engine-dependent half of this workbench is its audio
+  contract, and Compare already runs that across three engines. What this gate
+  adds is the flow through the *installed* wheel, which is engine-independent.
+
+The browser itself is not under test and is not part of the installation, so it
+runs with the machine's environment. The session it drives is the installed
+command, hermetic as ever. A machine without Chromium skips the browser leg
+alone, leaving the CLI leg to gate everything up to the comparison — the same
+bargain the missing-toolchain skip strikes, and `UNCOMPOSE_ACCEPTANCE_REQUIRE`
+closes both.
 
 ## Fake separations, and why the gate imports rather than separates
 

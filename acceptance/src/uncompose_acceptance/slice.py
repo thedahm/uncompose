@@ -5,9 +5,14 @@ through different entry points on purpose — one through the root's dispatch,
 one through the standalone command — because the family's promise is that both
 reach the same tool and the same manifest.
 
+The slice runs in two legs over one project: the CLI leg lands the source, the
+two derivations and their stems, and the browser leg adds the verdict that
+completes the story. They are separate so a machine without a browser still
+gates everything up to the comparison.
+
 Nothing here asserts; it records what each command did (argv, exit code,
-stdout, stderr) and leaves the manifest on disk. The tests read those, and the
-manifest, exactly as a user could.
+stdout, stderr) and leaves the manifest on disk. The tests read those, the
+manifest, and the record file, exactly as a user could.
 """
 
 from __future__ import annotations
@@ -20,6 +25,13 @@ from typing import Mapping
 from .commands import CommandResult, run
 from .fixtures import SliceFixtures
 from .install import Installation
+from .workbench import (
+    BlindVerdict,
+    WorkbenchLeg,
+    candidate_refs,
+    read_verdict,
+    run_workbench_leg,
+)
 
 MANIFEST_NAME = "uncompose.project.json"
 
@@ -47,6 +59,7 @@ class CliSlice:
     init: CommandResult
     imports: Mapping[str, CommandResult]
     show_json: CommandResult
+    shown: dict
     verify: CommandResult
     steps: tuple[CommandResult, ...]
     installation: Installation
@@ -87,21 +100,82 @@ def run_cli_slice(
     }
 
     # `verify` stamps `last_verified` on every asset that passes, so it is a
-    # manifest write like any other. Running it before `show` leaves the file
-    # settled: what `show --json` printed is still what is on disk when the
-    # tests read it.
+    # manifest write like any other. Running it before `show` means `show`
+    # prints a settled manifest rather than one about to be stamped again.
     verify = cli("uncompose-project", "verify", "--project", str(project))
+    manifest_path = project / MANIFEST_NAME
     show_json = cli("uncompose", "project", "show", "--json", "--project", str(project))
 
     return CliSlice(
         project=project,
         fixtures=fixtures,
-        manifest_path=project / MANIFEST_NAME,
+        manifest_path=manifest_path,
         versions=versions,
         init=init,
         imports=imports,
         show_json=show_json,
+        # What was on disk when `show` ran: the browser leg registers an
+        # evaluation into this same manifest afterwards, so comparing the two
+        # has to be a comparison against that moment.
+        shown=json.loads(manifest_path.read_text()),
         verify=verify,
         steps=tuple(steps),
         installation=installation,
+    )
+
+
+@dataclass(frozen=True)
+class WholeStory:
+    """The finished project: the CLI leg, the blind session, and what followed.
+
+    `verify` and `show` are run again after the verdict lands, because the
+    story the gate checks is the one the manifest tells at the end — with the
+    evaluation in it.
+    """
+
+    cli: CliSlice
+    leg: WorkbenchLeg
+    refs: tuple[str, str]
+    verify: CommandResult
+    show_json: CommandResult
+
+    @property
+    def project(self) -> Path:
+        return self.cli.project
+
+    def manifest(self) -> dict:
+        return self.cli.manifest()
+
+    def record_path(self) -> Path:
+        """The record file, as the closing screen reported it to the listener."""
+        return self.leg.browser.record_path
+
+    def record(self) -> dict:
+        return json.loads(self.record_path().read_text())
+
+    def verdict(self) -> BlindVerdict:
+        return read_verdict(self.record())
+
+    def evaluations(self) -> list[dict]:
+        return self.manifest()["evaluations"]
+
+    def describe(self) -> str:
+        return self.leg.describe()
+
+
+def tell_whole_story(cli_slice: CliSlice) -> WholeStory:
+    """Compare the two runs blind, then read the project back the way `show` does."""
+    installation, project = cli_slice.installation, cli_slice.project
+    refs = candidate_refs(cli_slice.manifest())
+    leg = run_workbench_leg(installation, project, refs)
+
+    def cli(*argv: str) -> CommandResult:
+        return run(installation, list(argv), cwd=project)
+
+    return WholeStory(
+        cli=cli_slice,
+        leg=leg,
+        refs=refs,
+        verify=cli("uncompose-project", "verify", "--project", str(project)),
+        show_json=cli("uncompose", "project", "show", "--json", "--project", str(project)),
     )
