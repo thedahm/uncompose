@@ -1,0 +1,86 @@
+name: Acceptance
+
+# The release gate (M6, #92 stories 33-38): all three family packages installed
+# into a clean environment, the vertical slice driven through them as a user
+# types it, and the workbench driven in Chromium. It is kept fast enough —
+# fake separations, no model weights — to run on every change to itself, which
+# is what keeps it honest; and it runs on demand, which is how a cut release is
+# checked against what PyPI actually served.
+#
+# It is deliberately not part of ci.yml: the gate compiles both extension repos
+# and fetches a browser, and the rest of CI has no business waiting for that on
+# a change that cannot affect it. It is equally deliberately absent from the
+# extension repos' per-PR lanes — their own suites are their gate.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - acceptance/**
+      - demo/build_demo.py
+      - .github/workflows/acceptance.yml
+  pull_request:
+    paths:
+      - acceptance/**
+      - demo/build_demo.py
+      - .github/workflows/acceptance.yml
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Where the three wheels come from
+        type: choice
+        options: [build, pypi]
+        default: build
+      project_ref:
+        description: "build mode: the uncompose-project ref to build"
+        type: string
+        default: main
+      compare_ref:
+        description: "build mode: the uncompose-compare ref to build"
+        type: string
+        default: main
+      root_version:
+        description: "pypi mode: pin uncompose (blank takes what the index serves)"
+        type: string
+      project_version:
+        description: "pypi mode: pin uncompose-project"
+        type: string
+      compare_version:
+        description: "pypi mode: pin uncompose-compare"
+        type: string
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: acceptance
+    steps:
+      - uses: actions/checkout@v4
+      # `build` mode compiles both extension wheels: Rust for each, Node
+      # because uncompose-compare embeds its frontend at compile time. `pypi`
+      # mode needs neither, and paying for them keeps one job for both modes.
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: acceptance/uv.lock
+      - run: uv sync
+      # Chromium only, with the system libraries it needs: the browser leg
+      # drives the flow, and Compare's own matrix covers the engine-dependent
+      # audio contract.
+      - run: uv run playwright install --with-deps chromium
+      - run: uv run pytest -v
+        env:
+          # A gate that could not run has not passed.
+          UNCOMPOSE_ACCEPTANCE_REQUIRE: 1
+          UNCOMPOSE_ACCEPTANCE_MODE: ${{ inputs.mode || 'build' }}
+          UNCOMPOSE_ACCEPTANCE_PROJECT_REF: ${{ inputs.project_ref || 'main' }}
+          UNCOMPOSE_ACCEPTANCE_COMPARE_REF: ${{ inputs.compare_ref || 'main' }}
+          UNCOMPOSE_ACCEPTANCE_ROOT_VERSION: ${{ inputs.root_version }}
+          UNCOMPOSE_ACCEPTANCE_PROJECT_VERSION: ${{ inputs.project_version }}
+          UNCOMPOSE_ACCEPTANCE_COMPARE_VERSION: ${{ inputs.compare_version }}
