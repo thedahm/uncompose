@@ -10,6 +10,11 @@ mod support;
 #[path = "../../core/tests/support/weights.rs"]
 mod weights;
 
+// Only `write_executable` is needed here; the provisioning suite uses the rest.
+#[path = "../../core/tests/support/fake_uv.rs"]
+#[allow(dead_code)]
+mod fake_uv;
+
 use std::io::{BufRead, BufReader};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
@@ -295,6 +300,306 @@ fn sigint_mid_run_kills_the_job_without_a_job_record() {
     // Ctrl+C leaves no half-written junk: every staged partial is removed.
     let partials: Vec<_> = walk_partials(&folder);
     assert!(partials.is_empty(), "partials left behind: {partials:?}");
+}
+
+// ---------------------------------------------------------------------------
+// `separate --project`: pre-flight and chained registration (M5 slice 3).
+// ---------------------------------------------------------------------------
+
+const PROJECT_SCHEMA: &str =
+    "https://uncompose.org/schemas/project/v0/uncompose.project.schema.json";
+
+/// A `separate` command wired to the fake engine, warm weight cache, and the
+/// given hermetic `bin` dir on PATH (where a test places its stub `ffmpeg` and
+/// stub `uncompose-project`). Callers append the input positional and flags.
+fn separate_cmd(dir: &Path, bin: &Path) -> Command {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_uncompose"));
+    cmd.arg("separate")
+        .args(["--device", "cpu"])
+        .env("UNCOMPOSE_ENGINE_PYTHON", support::fake_engine())
+        .env("PATH", bin)
+        .env("XDG_CACHE_HOME", seeded_cache(dir))
+        .env("XDG_STATE_HOME", dir.join("state"));
+    cmd
+}
+
+/// Write `<root>/uncompose.project.json` carrying `schema` (only field the
+/// pre-flight inspects; strict validation is uncompose-project's job).
+fn write_manifest(root: &Path, schema: &str) {
+    std::fs::create_dir_all(root).expect("creating project root");
+    std::fs::write(
+        root.join("uncompose.project.json"),
+        format!(r#"{{"schema": "{schema}"}}"#),
+    )
+    .expect("writing manifest");
+}
+
+/// A stub `uncompose-project` on the synthetic PATH: records each argv token
+/// (one per line) to `log`, optionally writes `stderr`, and exits `code` — the
+/// same substitution-at-the-process-boundary pattern as the fake engine / uv.
+fn stub_project(bin: &Path, log: &Path, code: i32, stderr: &str) {
+    let err_line = if stderr.is_empty() {
+        String::new()
+    } else {
+        format!("echo '{stderr}' >&2\n")
+    };
+    let script = format!(
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"{log}\"\n{err_line}exit {code}\n",
+        log = log.display(),
+    );
+    fake_uv::write_executable(&bin.join("uncompose-project"), &script);
+}
+
+fn write_input(path: &Path) {
+    std::fs::write(path, b"not really audio").expect("writing input");
+}
+
+#[test]
+fn project_missing_manifest_refuses_before_the_engine_runs() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let bin = bin_dir_with_ffmpeg(dir.path());
+    stub_project(&bin, &dir.path().join("argv.log"), 0, "");
+    let input = dir.path().join("song.wav");
+    write_input(&input);
+
+    let output = separate_cmd(dir.path(), &bin)
+        .arg(&input)
+        .args(["--project", dir.path().to_str().unwrap()])
+        .output()
+        .expect("running CLI");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("uncompose.project.json"),
+        "names the expected manifest, got:\n{stderr}"
+    );
+    assert!(
+        !dir.path().join("song.stems").exists(),
+        "no job folder: the engine never ran"
+    );
+}
+
+#[test]
+fn project_wrong_schema_url_refuses_before_the_engine_runs() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let bin = bin_dir_with_ffmpeg(dir.path());
+    stub_project(&bin, &dir.path().join("argv.log"), 0, "");
+    write_manifest(dir.path(), "https://example.com/not-a-project.json");
+    let input = dir.path().join("song.wav");
+    write_input(&input);
+
+    let output = separate_cmd(dir.path(), &bin)
+        .arg(&input)
+        .args(["--project", dir.path().to_str().unwrap()])
+        .output()
+        .expect("running CLI");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("schema") && stderr.contains(PROJECT_SCHEMA),
+        "names the expected schema, got:\n{stderr}"
+    );
+    assert!(
+        !dir.path().join("song.stems").exists(),
+        "no job folder: the engine never ran"
+    );
+}
+
+#[test]
+fn project_missing_uncompose_project_refuses_with_install_hint() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    // bin has ffmpeg but no uncompose-project.
+    let bin = bin_dir_with_ffmpeg(dir.path());
+    write_manifest(dir.path(), PROJECT_SCHEMA);
+    let input = dir.path().join("song.wav");
+    write_input(&input);
+
+    let output = separate_cmd(dir.path(), &bin)
+        .arg(&input)
+        .args(["--project", dir.path().to_str().unwrap()])
+        .output()
+        .expect("running CLI");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("uncompose-project") && stderr.contains("uv tool install"),
+        "install hint, got:\n{stderr}"
+    );
+    assert!(
+        !dir.path().join("song.stems").exists(),
+        "no job folder: the engine never ran"
+    );
+}
+
+#[test]
+fn project_out_of_root_input_refuses_before_the_engine_runs() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let bin = bin_dir_with_ffmpeg(dir.path());
+    stub_project(&bin, &dir.path().join("argv.log"), 0, "");
+    // The manifest lives in a subdirectory; the input sits outside it.
+    let root = dir.path().join("proj");
+    write_manifest(&root, PROJECT_SCHEMA);
+    let input = dir.path().join("song.wav");
+    write_input(&input);
+
+    let output = separate_cmd(dir.path(), &bin)
+        .arg(&input)
+        .args(["--project", root.to_str().unwrap()])
+        .output()
+        .expect("running CLI");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("outside the project root"),
+        "explains why, got:\n{stderr}"
+    );
+    assert!(
+        !dir.path().join("song.stems").exists(),
+        "no job folder: the engine never ran"
+    );
+}
+
+#[test]
+fn project_out_of_root_output_override_refuses_before_the_engine_runs() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let bin = bin_dir_with_ffmpeg(dir.path());
+    stub_project(&bin, &dir.path().join("argv.log"), 0, "");
+    let root = dir.path().join("proj");
+    write_manifest(&root, PROJECT_SCHEMA);
+    let input = root.join("song.wav");
+    write_input(&input);
+    // -o points outside the project root.
+    let outside = dir.path().join("elsewhere");
+
+    let output = separate_cmd(dir.path(), &bin)
+        .arg(&input)
+        .args(["--project", root.to_str().unwrap()])
+        .args(["--output", outside.to_str().unwrap()])
+        .output()
+        .expect("running CLI");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(
+        stderr.contains("outside the project root"),
+        "explains why, got:\n{stderr}"
+    );
+    assert!(!outside.exists(), "no job folder: the engine never ran");
+}
+
+#[test]
+fn project_chained_success_passes_the_pinned_argv_and_exits_zero() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let bin = bin_dir_with_ffmpeg(dir.path());
+    let argv_log = dir.path().join("argv.log");
+    stub_project(&bin, &argv_log, 0, "");
+    write_manifest(dir.path(), PROJECT_SCHEMA);
+    let input = dir.path().join("song.wav");
+    write_input(&input);
+
+    let output = separate_cmd(dir.path(), &bin)
+        .arg(&input)
+        .args(["--project", dir.path().to_str().unwrap()])
+        .output()
+        .expect("running CLI");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let logged = std::fs::read_to_string(&argv_log).expect("stub recorded no argv");
+    let lines: Vec<&str> = logged.lines().collect();
+    let root = dir.path().canonicalize().expect("canonical root");
+    let job_json = dir
+        .path()
+        .join("song.stems/job.json")
+        .canonicalize()
+        .expect("canonical job.json");
+    assert_eq!(
+        lines,
+        [
+            "import",
+            "--project",
+            root.to_str().unwrap(),
+            job_json.to_str().unwrap(),
+        ],
+        "exact pinned argv with absolute paths"
+    );
+}
+
+#[test]
+fn project_chained_failure_keeps_the_job_and_prints_recovery_last() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let bin = bin_dir_with_ffmpeg(dir.path());
+    let argv_log = dir.path().join("argv.log");
+    stub_project(&bin, &argv_log, 3, "import blew up");
+    write_manifest(dir.path(), PROJECT_SCHEMA);
+    let input = dir.path().join("song.wav");
+    write_input(&input);
+
+    let output = separate_cmd(dir.path(), &bin)
+        .arg(&input)
+        .args(["--project", dir.path().to_str().unwrap()])
+        .output()
+        .expect("running CLI");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success(), "import failure is nonzero");
+    // The separation is intact: the job folder and job.json stay untouched.
+    let job_json = dir.path().join("song.stems/job.json");
+    assert!(job_json.is_file(), "job.json left intact");
+    // The import's stderr is relayed.
+    assert!(
+        stderr.contains("import blew up"),
+        "relayed import stderr, got:\n{stderr}"
+    );
+    // The recovery command is the exact human form, printed last.
+    let last = stderr.lines().rfind(|l| !l.trim().is_empty());
+    assert_eq!(
+        last,
+        Some(
+            format!(
+                "re-register with: uncompose project import {}",
+                job_json.canonicalize().unwrap().display()
+            )
+            .as_str()
+        ),
+        "recovery command printed last, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn separate_without_project_does_not_register() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let bin = bin_dir_with_ffmpeg(dir.path());
+    // A stub is present but must never be invoked without --project.
+    let argv_log = dir.path().join("argv.log");
+    stub_project(&bin, &argv_log, 0, "");
+    let input = dir.path().join("song.wav");
+    write_input(&input);
+
+    let output = separate_cmd(dir.path(), &bin)
+        .arg(&input)
+        .output()
+        .expect("running CLI");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        dir.path().join("song.stems/job.json").is_file(),
+        "separated as usual"
+    );
+    assert!(
+        !argv_log.exists(),
+        "no registration attempted without --project"
+    );
 }
 
 /// Collect `*.partial` files anywhere under the folder (stage scratch dirs
