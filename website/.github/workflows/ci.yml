@@ -14,3 +14,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: python3 tests/check_site.py
+      - run: python3 tests/check_html.py
+      - run: python3 tests/check_links.py
+      - run: python3 tests/check_schemas.py

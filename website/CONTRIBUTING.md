@@ -10,10 +10,18 @@ The repo has no toolchain: no framework, no static-site generator, no build step
 `site/`, and what is in `site/` is exactly what a visitor receives.
 
 - Preview: `python3 -m http.server -d site 8000`, then open `http://localhost:8000`.
-- Check: `python3 tests/check_site.py` — the same command CI runs, using nothing but a
-  stock Python 3. It fails if the page loses one of the brief's tool definitions, the
-  command picture, the local-first copy, or a source/package link, and if anything on the
-  page would make a request off this origin.
+- Check: the same four scripts CI runs, using nothing but a stock Python 3 (`check_schemas.py`
+  needs network access to fetch each schema's pinned source ref):
+  - `python3 tests/check_site.py` — the page still carries the brief's tool definitions,
+    the command picture, the local-first copy, and both link sets, and nothing on it
+    would make a request off this origin.
+  - `python3 tests/check_html.py` — every page under `site/` is structurally valid HTML
+    (doctype, matching tags, `lang`, unique ids, and so on).
+  - `python3 tests/check_links.py` — every internal link and resource reference resolves
+    to a real file (and fragment, where one is given).
+  - `python3 tests/check_schemas.py` — the hosted JSON Schemas are present at their exact
+    identifier URLs, parseable, served with a JSON content type, and byte-identical to
+    their pinned source ref (see [`schemas/README.md`](schemas/README.md)).
 
 Changes to the page are checked at the seam a visitor meets: the delivered text and the
 requests the browser would make, never the shape of the markup. Style the page however

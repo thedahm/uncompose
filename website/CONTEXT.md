@@ -28,3 +28,20 @@ The permanent 301 from uncompose.cc — apex, `www`, and every path — to the m
 uncompose.org URL. It is a Cloudflare redirect rule on the `.cc` zone, not anything this
 repo serves.
 _Avoid_: forward, alias
+
+**Schema**:
+A JSON Schema owned by `uncompose-project` or `uncompose-compare`, served here at the
+exact identifier URL its files carry (e.g.
+`/schemas/project/v0/uncompose.project.schema.json`). The file under `site/schemas/` is a
+committed copy, not the source — it is pulled from the owning repo at a pinned ref
+recorded in [`schemas/sources.json`](schemas/sources.json) and is never authoritative.
+_Avoid_: spec, format definition
+
+**Pinned ref**:
+The repo, path, and commit (or, after a tool's first tag, release tag) a schema copy was
+pulled from, recorded in `schemas/sources.json` and checked by `tests/check_schemas.py`
+against the owning repo on every CI run. Moving a pin forward is a release-checklist step
+([uncompose#92](https://github.com/thedahm/uncompose/issues/92) story 25), not a routine
+edit.
+_Avoid_: version, source of truth (the schema's actual source of truth is the owning
+repo's conformance tests, not this pin)
