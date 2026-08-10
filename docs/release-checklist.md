@@ -74,8 +74,11 @@ published document actually got you through it.
     copy `schemas/*/v0/*.schema.json` from the release tag into the matching
     `site/schemas/.../` path, and move that pin in `schemas/sources.json` from the old
     commit SHA (or tag) to the new release tag — see that repo's `schemas/README.md` for
-    the exact convention. Confirm `tests/check_schemas.py` passes against the new pins
-    before pushing.
+    the exact convention. `check_schemas.py` reads only each entry's `ref`, so the rest of
+    the pin record is yours to carry: set `ref_kind` to `tag`, drop the entry's
+    pre-v0.1.0 `note`, and update the "Pinned from" table and the "neither tool has cut a
+    v0.1.0 tag yet" paragraph in `schemas/README.md`. Confirm `tests/check_schemas.py`
+    passes against the new pins before pushing.
 
 ## Part 3 — deployed state (CI can't honestly reproduce this)
 
