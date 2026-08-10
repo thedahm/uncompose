@@ -16,7 +16,11 @@ classifiers = ["Private :: Do Not Upload"]
 dependencies = []
 
 [dependency-groups]
-dev = ["pytest>=8"]
+# playwright drives the browser leg (#103). It brings no browser with it: the
+# Chromium build is fetched separately by `playwright install chromium`, so a
+# machine that has only synced this project skips the browser leg rather than
+# failing it.
+dev = ["pytest>=8", "playwright>=1.49"]
 
 [build-system]
 requires = ["hatchling"]

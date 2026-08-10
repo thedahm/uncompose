@@ -33,15 +33,14 @@ class CommandResult:
         )
 
 
-def run(
-    installation: Installation,
-    argv: list[str],
-    *,
-    cwd: Path | None = None,
-    timeout: float = 120.0,
-) -> CommandResult:
-    """Run one command inside the installation, capturing what a user would see."""
-    env = {
+def environment(installation: Installation) -> dict[str, str]:
+    """The whole environment an installed command is given — nothing inherited.
+
+    Shared with the browser leg, which launches a serving command of its own
+    (`workbench.py`), so both legs run the installed artifacts under identical
+    conditions.
+    """
+    return {
         "PATH": installation.path,
         "HOME": str(installation.home),
         # Keep every cache and state directory the family might use inside the
@@ -54,6 +53,17 @@ def run(
         # zone keeps a failure message the same on every machine.
         "TZ": "UTC",
     }
+
+
+def run(
+    installation: Installation,
+    argv: list[str],
+    *,
+    cwd: Path | None = None,
+    timeout: float = 120.0,
+) -> CommandResult:
+    """Run one command inside the installation, capturing what a user would see."""
+    env = environment(installation)
     try:
         completed = subprocess.run(
             argv,
