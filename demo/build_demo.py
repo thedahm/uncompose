@@ -241,10 +241,13 @@ def build_comparison_record(project: Path, candidates: list[dict]) -> Path:
     record = {
         "schema": COMPARE_SCHEMA_URL,
         "id": RECORD_ULID,
+        "created_at": EVALUATED_AT,
         "completed_at": EVALUATED_AT,
-        "preference": candidates[0]["label"],
-        "confidence": 0.7,
         "candidates": candidates,
+        "mode": "ab",
+        "playback": {"loudness_match": {"enabled": False}},
+        "observations": [],
+        "result": {"preference": candidates[0]["label"], "confidence": 4},
     }
     dest = project / "evaluations"
     dest.mkdir(parents=True, exist_ok=True)
@@ -268,8 +271,10 @@ def run_demo(workdir: Path) -> None:
 
     # 2. Lay down the fixtures inside the project and import each synthetic run
     #    as a derivation — this is the real import contract at work.
-    source = workdir / SOURCE_NAME
-    job_folders = generate_fixtures(workdir, input_path=str(source))
+    # The recorded input_path stays the bare source name: import resolves a
+    # job's input path relative to the project root and refuses absolute
+    # paths, the same rule real `separate --project` runs live under.
+    job_folders = generate_fixtures(workdir)
     for folder in job_folders:
         job_json = (folder / "job.json").resolve()
         result = run_uncompose(
