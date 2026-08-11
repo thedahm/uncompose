@@ -14,6 +14,14 @@ by the Engine Contract (ADR-0001, ADR-0003). Setup:
   need no GPU and load no models. A checkout's `engine/.venv` is also what the CLI
   runs when invoked from inside the repo — dev machines never trigger the runtime
   engine-environment provisioning that PyPI installs use (ADR-0004).
+- Release gate: `uv sync` and `uv run pytest` in [`acceptance/`](acceptance/) installs
+  all three family packages into a clean environment and drives the vertical slice
+  through them, workbench included. It is deliberately outside `cargo test` (ADR-0007)
+  — the toolchain-heavy tests skip unless `uv`, `git`, `cargo`, and `npm` are present,
+  and the browser leg skips without a Chromium (`uv run playwright install chromium`).
+- Release gate, manual: [`docs/release-checklist.md`](docs/release-checklist.md) is a
+  docs-alone pass of the brief's definition of done, run by hand once per coordinated
+  release (ADR-0009) — nothing above substitutes for it.
 
 Development is test-first at the Engine Contract seam, and that seam is the only
 substitution point: Rust tests run the real core and CLI against `fake-engine`, a small

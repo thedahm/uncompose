@@ -51,4 +51,31 @@ _Avoid_: output directory, results folder
 **Job Record**:
 The reproducibility file written with every job: model, version, and parameters sufficient to
 rerun it.
-_Avoid_: manifest, metadata file
+_Avoid_: metadata file; **manifest** on its own, which names the project file below
+
+## Language: the extensions
+
+The vocabulary `uncompose-project` and `uncompose-compare` own. It appears in this repo's
+docs — the walkthrough, the release checklist, the acceptance gate — because the family's
+own commands do.
+
+**Project Manifest**:
+The single `uncompose.project.json` a project is described by: its assets, the derivations
+between them, and the evaluations passed over them. Always qualified as the *project*
+manifest when a Job Record is anywhere nearby, since a job's own file is never called that.
+_Avoid_: index, database, project file
+
+**Asset**:
+One file a project registers, referenced in place by path and SHA-256 and never copied into
+the manifest — a source recording (`mix`) or a separated part (`stem`).
+_Avoid_: file entry, artifact
+
+**Derivation**:
+The recorded relationship between the assets a process consumed and the ones it produced,
+carrying a hashed reference to the Job Record that produced them.
+_Avoid_: edge, transformation, lineage entry
+
+**Evaluation**:
+A comparison registered in the manifest: which assets were judged, which was preferred at
+what confidence, and a hashed reference to the comparison record on disk.
+_Avoid_: verdict (that is the listener's decision inside one record), rating, score
