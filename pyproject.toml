@@ -9,7 +9,7 @@ build-backend = "maturin"
 
 [project]
 name = "uncompose"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local-first music source separation: a song in, a folder of stems out"
 readme = "README.md"
 license = "MIT"
