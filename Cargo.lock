@@ -188,7 +188,7 @@ dependencies = [
 
 [[package]]
 name = "fake-engine"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde_json",
 ]
@@ -503,7 +503,7 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "uncompose"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -515,7 +515,7 @@ dependencies = [
 
 [[package]]
 name = "uncompose-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "serde",

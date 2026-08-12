@@ -1,6 +1,6 @@
 [project]
 name = "uncompose-engine"
-version = "0.1.0"
+version = "0.2.0"
 description = "Separation engine shim: JSONL Engine Contract on one side, audio-separator on the other"
 # Floor matches audio-separator; the runtime Engine Environment is pinned to
 # 3.10 specifically because diffq (via demucs) ships binary wheels only up to
