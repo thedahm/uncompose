@@ -200,9 +200,6 @@ fn print_fetch_event(event: FetchEvent) {
     }
 }
 
-/// `models remove <id>` removes one entry's cached weights; `models remove
-/// --all` (clap enforces exactly one of `id`/`all`) removes every manifest
-/// entry's, printing the same per-id line for each.
 fn models_remove(id: Option<&str>, all: bool) -> Result<()> {
     let model_dir = default_model_dir();
     if all {
@@ -216,8 +213,8 @@ fn models_remove(id: Option<&str>, all: bool) -> Result<()> {
     remove_cached_entry(entry, &model_dir)
 }
 
-/// Removes one manifest entry's cached weight files, printing what happened
-/// the same way for both `models remove <id>` and `models remove --all`.
+/// One removal and printed line per manifest entry. Shared by `models remove
+/// <id>` and `models remove --all` so the two surfaces cannot drift.
 fn remove_cached_entry(entry: &registry::ModelEntry, model_dir: &Path) -> Result<()> {
     let mut removed = false;
     for file in entry.files {
