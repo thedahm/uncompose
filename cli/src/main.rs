@@ -203,8 +203,22 @@ fn print_fetch_event(event: FetchEvent) {
 fn models_remove(id: Option<&str>, all: bool) -> Result<()> {
     let model_dir = default_model_dir();
     if all {
+        // One stuck file must not strand the rest of the sweep: `--all` is the
+        // whole cache in one pass, and a user told nothing about the models it
+        // never reached cannot act on them. Failing at the end keeps the exit
+        // code honest.
+        let mut failed = 0;
         for entry in registry::MANIFEST {
-            remove_cached_entry(entry, &model_dir)?;
+            if let Err(err) = remove_cached_entry(entry, &model_dir) {
+                eprintln!("{}: {err:#}", entry.id);
+                failed += 1;
+            }
+        }
+        if failed > 0 {
+            bail!(
+                "{failed} of {} models could not be removed",
+                registry::MANIFEST.len()
+            );
         }
         return Ok(());
     }
