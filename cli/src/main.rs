@@ -77,8 +77,12 @@ enum ModelsCommand {
     },
     /// Remove a model's cached weights to reclaim disk space
     Remove {
-        /// A model id
-        id: String,
+        /// A model id (omit with --all)
+        #[arg(required_unless_present = "all")]
+        id: Option<String>,
+        /// Remove every cached model's weight files, not just one
+        #[arg(long, conflicts_with = "id")]
+        all: bool,
     },
 }
 
@@ -100,7 +104,7 @@ fn main() -> Result<()> {
         Command::Models { command } => match command {
             ModelsCommand::List => models_list(),
             ModelsCommand::Fetch { target } => models_fetch(&target),
-            ModelsCommand::Remove { id } => models_remove(&id),
+            ModelsCommand::Remove { id, all } => models_remove(id.as_deref(), all),
         },
     }
 }
@@ -196,9 +200,25 @@ fn print_fetch_event(event: FetchEvent) {
     }
 }
 
-fn models_remove(id: &str) -> Result<()> {
-    let entry = registry::find(id).ok_or_else(|| anyhow!("unknown model: {id}"))?;
+/// `models remove <id>` removes one entry's cached weights; `models remove
+/// --all` (clap enforces exactly one of `id`/`all`) removes every manifest
+/// entry's, printing the same per-id line for each.
+fn models_remove(id: Option<&str>, all: bool) -> Result<()> {
     let model_dir = default_model_dir();
+    if all {
+        for entry in registry::MANIFEST {
+            remove_cached_entry(entry, &model_dir)?;
+        }
+        return Ok(());
+    }
+    let id = id.expect("clap requires id when --all is absent");
+    let entry = registry::find(id).ok_or_else(|| anyhow!("unknown model: {id}"))?;
+    remove_cached_entry(entry, &model_dir)
+}
+
+/// Removes one manifest entry's cached weight files, printing what happened
+/// the same way for both `models remove <id>` and `models remove --all`.
+fn remove_cached_entry(entry: &registry::ModelEntry, model_dir: &Path) -> Result<()> {
     let mut removed = false;
     for file in entry.files {
         let path = model_dir.join(file.file_name);
@@ -208,9 +228,9 @@ fn models_remove(id: &str) -> Result<()> {
         }
     }
     if removed {
-        println!("{id}: removed");
+        println!("{}: removed", entry.id);
     } else {
-        println!("{id}: not cached");
+        println!("{}: not cached", entry.id);
     }
     Ok(())
 }
