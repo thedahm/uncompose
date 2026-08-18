@@ -77,8 +77,12 @@ enum ModelsCommand {
     },
     /// Remove a model's cached weights to reclaim disk space
     Remove {
-        /// A model id
-        id: String,
+        /// A model id (omit with --all)
+        #[arg(required_unless_present = "all")]
+        id: Option<String>,
+        /// Remove every cached model's weight files, not just one
+        #[arg(long, conflicts_with = "id")]
+        all: bool,
     },
 }
 
@@ -100,7 +104,7 @@ fn main() -> Result<()> {
         Command::Models { command } => match command {
             ModelsCommand::List => models_list(),
             ModelsCommand::Fetch { target } => models_fetch(&target),
-            ModelsCommand::Remove { id } => models_remove(&id),
+            ModelsCommand::Remove { id, all } => models_remove(id.as_deref(), all),
         },
     }
 }
@@ -196,9 +200,36 @@ fn print_fetch_event(event: FetchEvent) {
     }
 }
 
-fn models_remove(id: &str) -> Result<()> {
-    let entry = registry::find(id).ok_or_else(|| anyhow!("unknown model: {id}"))?;
+fn models_remove(id: Option<&str>, all: bool) -> Result<()> {
     let model_dir = default_model_dir();
+    if all {
+        // One stuck file must not strand the rest of the sweep: `--all` is the
+        // whole cache in one pass, and a user told nothing about the models it
+        // never reached cannot act on them. Failing at the end keeps the exit
+        // code honest.
+        let mut failed = 0;
+        for entry in registry::MANIFEST {
+            if let Err(err) = remove_cached_entry(entry, &model_dir) {
+                eprintln!("{}: {err:#}", entry.id);
+                failed += 1;
+            }
+        }
+        if failed > 0 {
+            bail!(
+                "{failed} of {} models could not be removed",
+                registry::MANIFEST.len()
+            );
+        }
+        return Ok(());
+    }
+    let id = id.expect("clap requires id when --all is absent");
+    let entry = registry::find(id).ok_or_else(|| anyhow!("unknown model: {id}"))?;
+    remove_cached_entry(entry, &model_dir)
+}
+
+/// One removal and printed line per manifest entry. Shared by `models remove
+/// <id>` and `models remove --all` so the two surfaces cannot drift.
+fn remove_cached_entry(entry: &registry::ModelEntry, model_dir: &Path) -> Result<()> {
     let mut removed = false;
     for file in entry.files {
         let path = model_dir.join(file.file_name);
@@ -208,9 +239,9 @@ fn models_remove(id: &str) -> Result<()> {
         }
     }
     if removed {
-        println!("{id}: removed");
+        println!("{}: removed", entry.id);
     } else {
-        println!("{id}: not cached");
+        println!("{}: not cached", entry.id);
     }
     Ok(())
 }
