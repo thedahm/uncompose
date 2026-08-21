@@ -25,6 +25,7 @@ fn config(dir: &Path, input_name: &str, preset: &'static Preset) -> JobConfig {
         state_dir: dir.join("state"),
         engine_python: support::fake_engine(),
         output: None,
+        project_root: None,
     }
 }
 
@@ -111,6 +112,76 @@ fn six_stem_composes_two_engine_calls_into_six_stems() {
         record["input_sha256"].as_str().map(str::len),
         Some(64),
         "input hash recorded"
+    );
+}
+
+#[test]
+fn without_a_project_the_recorded_input_path_is_absolute() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (outcome, _) = run(&config(dir.path(), "song.wav", &TWO_STEM));
+    let outcome = outcome.expect("job should succeed");
+
+    let record: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(outcome.job_folder.join("job.json")).expect("reading job.json"),
+    )
+    .expect("job.json is JSON");
+    let recorded = Path::new(
+        record["input_path"]
+            .as_str()
+            .expect("input_path is a string"),
+    );
+    assert!(
+        recorded.is_absolute(),
+        "no project root: input_path stays absolute, got {}",
+        recorded.display()
+    );
+}
+
+/// With a project root, an in-root input is recorded root-relative in
+/// job.json — the shape `uncompose-project import` resolves without a prior
+/// `add`, so a fresh project's first-ever registration succeeds (#119).
+#[test]
+fn a_project_input_is_recorded_root_relative() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut config = config(dir.path(), "song.wav", &TWO_STEM);
+    // run_job canonicalizes the input, so hand it the same canonical root
+    // preflight_project would (the tempdir path may hold symlinks).
+    config.project_root = Some(dir.path().canonicalize().expect("canonical root"));
+    let (outcome, _) = run(&config);
+    let outcome = outcome.expect("job should succeed");
+
+    let record: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(outcome.job_folder.join("job.json")).expect("reading job.json"),
+    )
+    .expect("job.json is JSON");
+    assert_eq!(record["input_path"], "song.wav");
+}
+
+/// An input outside the declared root falls back to the absolute path rather
+/// than fabricating a bogus relative one. The CLI preflights this case away;
+/// the core just refuses to lie.
+#[test]
+fn an_input_outside_the_project_root_stays_absolute() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let elsewhere = tempfile::tempdir().expect("tempdir");
+    let mut config = config(dir.path(), "song.wav", &TWO_STEM);
+    config.project_root = Some(elsewhere.path().canonicalize().expect("canonical root"));
+    let (outcome, _) = run(&config);
+    let outcome = outcome.expect("job should succeed");
+
+    let record: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(outcome.job_folder.join("job.json")).expect("reading job.json"),
+    )
+    .expect("job.json is JSON");
+    let recorded = Path::new(
+        record["input_path"]
+            .as_str()
+            .expect("input_path is a string"),
+    );
+    assert!(
+        recorded.is_absolute(),
+        "out-of-root input stays absolute, got {}",
+        recorded.display()
     );
 }
 
@@ -303,6 +374,7 @@ fn missing_input_fails_before_creating_a_job_folder() {
         state_dir: dir.path().join("state"),
         engine_python: support::fake_engine(),
         output: None,
+        project_root: None,
     };
     let err = format!("{:#}", run_job(&config, |_| ()).expect_err("should fail"));
     assert!(err.contains("input not found"), "got: {err}");

@@ -305,6 +305,7 @@ fn separate(
         state_dir: state::default_state_dir(),
         engine_python: engine::resolve_engine_python(print_provision_event)?,
         output,
+        project_root: project_root.clone(),
     };
 
     let mut progress = Progress::new();

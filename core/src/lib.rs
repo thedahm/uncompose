@@ -41,6 +41,10 @@ pub struct JobConfig {
     /// Explicit output folder (`-o`); `None` means the default next to the
     /// input. Either way the folder is collision-suffixed, never overwritten.
     pub output: Option<PathBuf>,
+    /// The canonical project root when running under `--project`. An input
+    /// inside it is recorded in job.json root-relative — the shape
+    /// `uncompose-project import` resolves without a prior `add` (#119).
+    pub project_root: Option<PathBuf>,
 }
 
 /// The job was cancelled (Ctrl+C): the engine was killed by SIGINT. Carried
@@ -232,8 +236,15 @@ pub fn run_job(config: &JobConfig, mut on_event: impl FnMut(JobEvent)) -> Result
     }
 
     let stems: Vec<String> = preset.stems.iter().map(|s| s.to_string()).collect();
+    // Under --project, an in-root input is recorded root-relative: import
+    // refuses absolute recorded paths unless the input already resolves by
+    // hash, which a project's first-ever separation cannot (#119).
+    let recorded_input = match &config.project_root {
+        Some(root) => input.strip_prefix(root).unwrap_or(&input),
+        None => &input,
+    };
     let record = JobRecord {
-        input_path: input.to_string_lossy().into_owned(),
+        input_path: recorded_input.to_string_lossy().into_owned(),
         input_sha256: job::sha256_file(&input)?,
         preset: preset.name.to_string(),
         models: preset
