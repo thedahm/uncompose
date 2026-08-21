@@ -36,6 +36,10 @@ uv tool install uncompose-project
 uv tool install uncompose-compare
 ```
 
+Prefer pip? `pip install uncompose uncompose-project uncompose-compare` installs
+the same three commands — Uncompose still uses uv at runtime, so keep it
+installed either way.
+
 Uncompose is Linux-only for v0.1 and needs **ffmpeg** on your `PATH`
 (`sudo apt install ffmpeg` on Debian/Ubuntu). The first real separation builds
 the engine environment and downloads model weights; on a machine without an

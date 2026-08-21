@@ -9,9 +9,10 @@ while keeping control over their audio, models, and workflow.
 
 ## Status
 
-Pre-v0.1: the first release is being built in the open on the
-[issue tracker](https://github.com/thedahm/uncompose/issues), with decisions recorded
-in [`docs/adr/`](docs/adr/). The install lines below go live with the `v0.1.0` tag.
+v0.2.0 is [on PyPI](https://pypi.org/project/uncompose/). Development happens in the
+open on the [issue tracker](https://github.com/thedahm/uncompose/issues), with
+decisions recorded in [`docs/adr/`](docs/adr/) and each release described in
+[`docs/releases/`](docs/releases/).
 
 ## Install
 
@@ -22,6 +23,7 @@ either way:
 ```sh
 uvx uncompose separate song.mp3        # run without installing
 uv tool install uncompose              # or install the `uncompose` command
+pip install uncompose                  # pip works too; uv is still needed at runtime
 ```
 
 The package is small; the heavy part comes on first use. Uncompose then builds its
